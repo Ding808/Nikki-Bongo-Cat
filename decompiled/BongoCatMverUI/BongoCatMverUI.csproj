@@ -1,0 +1,155 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <AssemblyName>BongoCatMverUI</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <UseWPF>True</UseWPF>
+    <TargetFramework>net472</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup>
+    <RootNamespace />
+  </PropertyGroup>
+  <ItemGroup>
+    <None Remove="resources\support\aifadianlogo.png" />
+    <None Remove="xmlfile1.xml" />
+    <None Remove="tutorial\tutorial_keymap.baml" />
+    <None Remove="pagetutorial.baml" />
+    <None Remove="pageupdate.baml" />
+    <None Remove="setting_cat.baml" />
+    <None Remove="resources\tutorial\img_question_1.png" />
+    <None Remove="resources\shigongzhong.png" />
+    <None Remove="resources\bongocatmvercathomeqq.png" />
+    <None Remove="tutorial\tutorial_howtousethisui.baml" />
+    <None Remove="resources\tutorial\img_tutorial_19.png" />
+    <None Remove="resources\tutorial\img_tutorial_18.png" />
+    <None Remove="resources\tutorial\img_tutorial_17.png" />
+    <None Remove="resources\tutorial\img_tutorial_16.png" />
+    <None Remove="resources\tutorial\img_tutorial_15.png" />
+    <None Remove="resources\tutorial\img_tutorial_14.png" />
+    <None Remove="resources\tutorial\img_tutorial_13.png" />
+    <None Remove="resources\tutorial\img_tutorial_12.png" />
+    <None Remove="resources\tutorial\img_tutorial_11.png" />
+    <None Remove="resources\tutorial\img_tutorial_10.png" />
+    <None Remove="tutorial\tutorial_configcomparisontable.baml" />
+    <None Remove="resources\tutorial\img_tutorial_21.png" />
+    <None Remove="resources\tutorial\img_tutorial_20.png" />
+    <None Remove="resources\tutorial\img_tutorial_22.png" />
+    <None Remove="setting_cat_standard_mode.baml" />
+    <None Remove="resources\tutorial\img_tutorial_9.png" />
+    <None Remove="resources\tutorial\img_tutorial_7.png" />
+    <None Remove="resources\tutorial\img_tutorial_8.jpg" />
+    <None Remove="resources\tutorial\img_tutorial_5.png" />
+    <None Remove="resources\tutorial\img_tutorial_6.png" />
+    <None Remove="resources\tutorial\img_tutorial_3.png" />
+    <None Remove="resources\tutorial\img_tutorial_4.png" />
+    <None Remove="resources\tutorial\img_tutorial_1.png" />
+    <None Remove="resources\tutorial\img_tutorial_2.png" />
+    <None Remove="pagesupportme.baml" />
+    <None Remove="tutorial\tutorial_diycat.baml" />
+    <None Remove="tutorial\question_blackbackground.baml" />
+    <None Remove="server\page_0.1.5update.baml" />
+    <None Remove="bongocat_btnstyle.baml" />
+    <None Remove="tutorial\tutorial_diycatpro.baml" />
+    <None Remove="resources\cat_unload.png" />
+    <None Remove="tutorial\tutorial_howtoask.baml" />
+    <None Remove="resources\tutorial\img_setting_1.png" />
+    <None Remove="server\page_updateinfomation.baml" />
+    <None Remove="watermark.png" />
+    <None Remove="resources\bongocatmverqq.png" />
+    <None Remove="pagehome.baml" />
+    <None Remove="resources\support\bilibililogo.png" />
+    <None Remove="setting_cat_keyboard_mode.baml" />
+    <None Remove="resources\bongocatmverqq3.png" />
+    <None Remove="resources\bongocatmverqq2.png" />
+    <None Remove="tutorial\tutorial_whatyoumustknow.baml" />
+    <None Remove="tutorial\tutorial_homepage.baml" />
+    <None Remove="tutorial\tutorial_aboutbroadcast.baml" />
+    <None Remove="tutorial\question_catfreeze.baml" />
+    <None Remove="window_colorpicker.baml" />
+    <None Remove="tutorial\question_topwindow.baml" />
+    <None Remove="pagefeedback_and_communicate.baml" />
+    <None Remove="tutorial\question_missingpart.baml" />
+    <None Remove="bongocat_mver256.ico" />
+    <None Remove="server\page_0.1.4update.baml" />
+    <None Remove="resources\caticon.ttf" />
+    <None Remove="tutorial\tutorial_workarea.baml" />
+    <None Remove="simple-20styles.baml" />
+    <None Remove="setting_window.baml" />
+    <EmbeddedResource Include="resources\support\aifadianlogo.png" LogicalName="resources/support/aifadianlogo.png" />
+    <EmbeddedResource Include="xmlfile1.xml" LogicalName="xmlfile1.xml" />
+    <EmbeddedResource Include="tutorial\tutorial_keymap.baml" LogicalName="tutorial/tutorial_keymap.baml" />
+    <EmbeddedResource Include="pagetutorial.baml" LogicalName="pagetutorial.baml" />
+    <EmbeddedResource Include="pageupdate.baml" LogicalName="pageupdate.baml" />
+    <EmbeddedResource Include="setting_cat.baml" LogicalName="setting_cat.baml" />
+    <EmbeddedResource Include="resources\tutorial\img_question_1.png" LogicalName="resources/tutorial/img_question_1.png" />
+    <EmbeddedResource Include="resources\shigongzhong.png" LogicalName="resources/shigongzhong.png" />
+    <EmbeddedResource Include="resources\bongocatmvercathomeqq.png" LogicalName="resources/bongocatmvercathomeqq.png" />
+    <EmbeddedResource Include="tutorial\tutorial_howtousethisui.baml" LogicalName="tutorial/tutorial_howtousethisui.baml" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_19.png" LogicalName="resources/tutorial/img_tutorial_19.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_18.png" LogicalName="resources/tutorial/img_tutorial_18.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_17.png" LogicalName="resources/tutorial/img_tutorial_17.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_16.png" LogicalName="resources/tutorial/img_tutorial_16.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_15.png" LogicalName="resources/tutorial/img_tutorial_15.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_14.png" LogicalName="resources/tutorial/img_tutorial_14.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_13.png" LogicalName="resources/tutorial/img_tutorial_13.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_12.png" LogicalName="resources/tutorial/img_tutorial_12.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_11.png" LogicalName="resources/tutorial/img_tutorial_11.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_10.png" LogicalName="resources/tutorial/img_tutorial_10.png" />
+    <EmbeddedResource Include="tutorial\tutorial_configcomparisontable.baml" LogicalName="tutorial/tutorial_configcomparisontable.baml" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_21.png" LogicalName="resources/tutorial/img_tutorial_21.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_20.png" LogicalName="resources/tutorial/img_tutorial_20.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_22.png" LogicalName="resources/tutorial/img_tutorial_22.png" />
+    <EmbeddedResource Include="setting_cat_standard_mode.baml" LogicalName="setting_cat_standard_mode.baml" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_9.png" LogicalName="resources/tutorial/img_tutorial_9.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_7.png" LogicalName="resources/tutorial/img_tutorial_7.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_8.jpg" LogicalName="resources/tutorial/img_tutorial_8.jpg" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_5.png" LogicalName="resources/tutorial/img_tutorial_5.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_6.png" LogicalName="resources/tutorial/img_tutorial_6.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_3.png" LogicalName="resources/tutorial/img_tutorial_3.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_4.png" LogicalName="resources/tutorial/img_tutorial_4.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_1.png" LogicalName="resources/tutorial/img_tutorial_1.png" />
+    <EmbeddedResource Include="resources\tutorial\img_tutorial_2.png" LogicalName="resources/tutorial/img_tutorial_2.png" />
+    <EmbeddedResource Include="pagesupportme.baml" LogicalName="pagesupportme.baml" />
+    <EmbeddedResource Include="tutorial\tutorial_diycat.baml" LogicalName="tutorial/tutorial_diycat.baml" />
+    <EmbeddedResource Include="tutorial\question_blackbackground.baml" LogicalName="tutorial/question_blackbackground.baml" />
+    <EmbeddedResource Include="server\page_0.1.5update.baml" LogicalName="server/page_0.1.5update.baml" />
+    <EmbeddedResource Include="bongocat_btnstyle.baml" LogicalName="bongocat_btnstyle.baml" />
+    <EmbeddedResource Include="tutorial\tutorial_diycatpro.baml" LogicalName="tutorial/tutorial_diycatpro.baml" />
+    <EmbeddedResource Include="resources\cat_unload.png" LogicalName="resources/cat_unload.png" />
+    <EmbeddedResource Include="tutorial\tutorial_howtoask.baml" LogicalName="tutorial/tutorial_howtoask.baml" />
+    <EmbeddedResource Include="resources\tutorial\img_setting_1.png" LogicalName="resources/tutorial/img_setting_1.png" />
+    <EmbeddedResource Include="server\page_updateinfomation.baml" LogicalName="server/page_updateinfomation.baml" />
+    <EmbeddedResource Include="watermark.png" LogicalName="watermark.png" />
+    <EmbeddedResource Include="resources\bongocatmverqq.png" LogicalName="resources/bongocatmverqq.png" />
+    <EmbeddedResource Include="pagehome.baml" LogicalName="pagehome.baml" />
+    <EmbeddedResource Include="resources\support\bilibililogo.png" LogicalName="resources/support/bilibililogo.png" />
+    <EmbeddedResource Include="setting_cat_keyboard_mode.baml" LogicalName="setting_cat_keyboard_mode.baml" />
+    <EmbeddedResource Include="resources\bongocatmverqq3.png" LogicalName="resources/bongocatmverqq3.png" />
+    <EmbeddedResource Include="resources\bongocatmverqq2.png" LogicalName="resources/bongocatmverqq2.png" />
+    <EmbeddedResource Include="tutorial\tutorial_whatyoumustknow.baml" LogicalName="tutorial/tutorial_whatyoumustknow.baml" />
+    <EmbeddedResource Include="tutorial\tutorial_homepage.baml" LogicalName="tutorial/tutorial_homepage.baml" />
+    <EmbeddedResource Include="tutorial\tutorial_aboutbroadcast.baml" LogicalName="tutorial/tutorial_aboutbroadcast.baml" />
+    <EmbeddedResource Include="tutorial\question_catfreeze.baml" LogicalName="tutorial/question_catfreeze.baml" />
+    <EmbeddedResource Include="window_colorpicker.baml" LogicalName="window_colorpicker.baml" />
+    <EmbeddedResource Include="tutorial\question_topwindow.baml" LogicalName="tutorial/question_topwindow.baml" />
+    <EmbeddedResource Include="pagefeedback_and_communicate.baml" LogicalName="pagefeedback_and_communicate.baml" />
+    <EmbeddedResource Include="tutorial\question_missingpart.baml" LogicalName="tutorial/question_missingpart.baml" />
+    <EmbeddedResource Include="bongocat_mver256.ico" LogicalName="bongocat_mver256.ico" />
+    <EmbeddedResource Include="server\page_0.1.4update.baml" LogicalName="server/page_0.1.4update.baml" />
+    <EmbeddedResource Include="resources\caticon.ttf" LogicalName="resources/caticon.ttf" />
+    <EmbeddedResource Include="tutorial\tutorial_workarea.baml" LogicalName="tutorial/tutorial_workarea.baml" />
+    <EmbeddedResource Include="simple-20styles.baml" LogicalName="simple%20styles.baml" />
+    <EmbeddedResource Include="setting_window.baml" LogicalName="setting_window.baml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="System.Xml" />
+    <Reference Include="MaterialDesignThemes.Wpf">
+      <HintPath>MaterialDesignThemes.Wpf.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

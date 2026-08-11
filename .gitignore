@@ -1,0 +1,39 @@
+# IDE and OS files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.DS_Store
+Thumbs.db
+
+# .NET build output
+**/bin/
+**/obj/
+**/publish/
+TestResults/
+artifacts/
+
+# Local tools and scratch output
+/.tmp/
+/.tools/.store/
+/.tools/ilspycmd.exe
+/.external/
+
+# Runtime backups and generated packages
+/.petstats_backups/
+/.petstats_composer/
+/打包输出/
+
+# Accidental or redundant local copies
+/img/standard/cat_model_broken_*/
+/BongoCatMver - 副本.exe
+/解压此文件使用.zip
+
+# Logs and crash dumps
+*.log
+*.dmp
+*.pdb
+

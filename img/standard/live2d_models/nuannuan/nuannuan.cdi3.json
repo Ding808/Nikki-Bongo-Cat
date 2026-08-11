@@ -1,0 +1,162 @@
+{
+	"Version": 3,
+	"Parameters": [
+		{
+			"Id": "CatParamEyeLOpen",
+			"GroupId": "ParamGroup",
+			"Name": "眼睛开闭"
+		},
+		{
+			"Id": "CatParamLeftHandDown",
+			"GroupId": "ParamGroup",
+			"Name": "键盘"
+		},
+		{
+			"Id": "ParamMouseRightDown",
+			"GroupId": "ParamGroup",
+			"Name": "右键"
+		},
+		{
+			"Id": "ParamMouseLeftDown",
+			"GroupId": "ParamGroup",
+			"Name": "左键"
+		},
+		{
+			"Id": "ParamMouseY",
+			"GroupId": "ParamGroup",
+			"Name": "鼠标Y"
+		},
+		{
+			"Id": "ParamMouseX",
+			"GroupId": "ParamGroup",
+			"Name": "鼠标X"
+		},
+		{
+			"Id": "ParamAngleX",
+			"GroupId": "ParamGroup",
+			"Name": "角度 X"
+		},
+		{
+			"Id": "ParamAngleY",
+			"GroupId": "ParamGroup",
+			"Name": "角度 Y"
+		},
+		{
+			"Id": "Param",
+			"GroupId": "ParamGroup2",
+			"Name": "表情1_黑眼圈"
+		},
+		{
+			"Id": "Param2",
+			"GroupId": "ParamGroup2",
+			"Name": "表情2_生气"
+		},
+		{
+			"Id": "Param3",
+			"GroupId": "ParamGroup2",
+			"Name": "表情3_x笑"
+		},
+		{
+			"Id": "Param4",
+			"GroupId": "ParamGroup3",
+			"Name": "刘海1"
+		},
+		{
+			"Id": "Param5",
+			"GroupId": "ParamGroup3",
+			"Name": "刘海2"
+		},
+		{
+			"Id": "Param6",
+			"GroupId": "ParamGroup3",
+			"Name": "刘海3"
+		},
+		{
+			"Id": "Param7",
+			"GroupId": "ParamGroup3",
+			"Name": "眼睛x"
+		},
+		{
+			"Id": "Param8",
+			"GroupId": "ParamGroup3",
+			"Name": "眼睛y"
+		}
+	],
+	"ParameterGroups": [
+		{
+			"Id": "ParamGroup",
+			"GroupId": "",
+			"Name": "基础"
+		},
+		{
+			"Id": "ParamGroup2",
+			"GroupId": "",
+			"Name": "表情"
+		},
+		{
+			"Id": "ParamGroup3",
+			"GroupId": "",
+			"Name": "物理"
+		}
+	],
+	"Parts": [
+		{
+			"Id": "Part4",
+			"Name": "前发"
+		},
+		{
+			"Id": "Part19",
+			"Name": "nuannuan.psd(未找到对应图层)"
+		},
+		{
+			"Id": "Part17",
+			"Name": "nuannuan.psd(未找到对应图层)"
+		},
+		{
+			"Id": "Part",
+			"Name": "表情1"
+		},
+		{
+			"Id": "Part2",
+			"Name": "表情2"
+		},
+		{
+			"Id": "Part3",
+			"Name": "初始表情"
+		},
+		{
+			"Id": "WASD",
+			"Name": "WASD"
+		},
+		{
+			"Id": "Part5",
+			"Name": "鼠标"
+		},
+		{
+			"Id": "Part6",
+			"Name": "按下"
+		},
+		{
+			"Id": "Part7",
+			"Name": "按键"
+		},
+		{
+			"Id": "Part8",
+			"Name": "板子"
+		},
+		{
+			"Id": "Part12",
+			"Name": "初始表情"
+		},
+		{
+			"Id": "Part11",
+			"Name": "初始表情"
+		}
+	],
+	"CombinedParameters": [
+		[
+			"ParamAngleX",
+			"ParamAngleY"
+		]
+	]
+}

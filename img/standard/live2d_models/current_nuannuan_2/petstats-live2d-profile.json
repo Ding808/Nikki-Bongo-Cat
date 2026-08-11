@@ -1,0 +1,31 @@
+{
+  "Version": 1,
+  "ModelName": "nuannuan",
+  "Live2DEnabled": true,
+  "AnimationKeys": [
+    "P",
+    "F",
+    "W",
+    "J",
+    "K",
+    "C",
+    "V",
+    "Space",
+    "D"
+  ],
+  "FaceKeys": [
+    "Ctrl\u002BNum1",
+    "Ctrl\u002BNum2",
+    "Ctrl\u002BNum3",
+    "Ctrl\u002BNum4"
+  ],
+  "Live2DExpressionKeys": [
+    "222",
+    "Ctrl\u002B1",
+    "Ctrl\u002B2"
+  ],
+  "Live2DMotionKeys": [
+    "Ctrl\u002B5",
+    "Ctrl\u002B6"
+  ]
+}
