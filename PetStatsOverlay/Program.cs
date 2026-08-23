@@ -1,89 +1,79 @@
-using System.Diagnostics;
-
 namespace PetStatsOverlay;
 
 static class Program
 {
-    /// <summary>
-    ///  The main entry point for the application.
-    /// </summary>
     [STAThread]
     static void Main(string[] args)
     {
-        var launchPetThroughSteam = args.Any(arg => string.Equals(arg, "--attach-steam-bongo-cat", StringComparison.OrdinalIgnoreCase));
+        var options = LaunchOptions.Parse(args);
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
 
-        if (args.Any(arg => string.Equals(arg, "--steam-launcher", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(arg, "--launch-pet", StringComparison.OrdinalIgnoreCase)))
+        if (options.ShowHelp)
         {
-            StartBundledPet();
-        }
-
-        // To customize application configuration such as set high DPI settings or default font,
-        // see https://aka.ms/applicationconfiguration.
-        ApplicationConfiguration.Initialize();
-        Application.Run(new Form1(launchPetThroughSteam));
-    }
-
-    private static void StartBundledPet()
-    {
-        var root = FindRootDirectory();
-        var petPath = Path.Combine(root, "BongoCatMver.exe");
-        if (!File.Exists(petPath) || IsPetAlreadyRunning(petPath))
-        {
+            MessageBox.Show(
+                "启动参数：\n\n" +
+                "--launch-pet   启动本地桌宠和统计浮窗\n" +
+                "--steam        请求 Steam 启动 Bongo Cat 后退出\n" +
+                "--steam-launcher  已由 Steam 启动，只启动一只本地桌宠\n" +
+                "--help         显示此帮助",
+                "Nikki Bongo Cat",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
             return;
         }
 
-        try
-        {
-            new BongoCatConfigEditor().SyncActiveLive2DModelToRuntime();
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = petPath,
-                WorkingDirectory = root,
-                UseShellExecute = true
-            });
-        }
-        catch
-        {
-            // The overlay can still run if the pet was started manually.
-        }
-    }
-
-    private static bool IsPetAlreadyRunning(string petPath)
-    {
-        var target = Path.GetFullPath(petPath);
-        foreach (var process in Process.GetProcessesByName("BongoCatMver"))
+        var editor = new BongoCatConfigEditor();
+        if (options.StartSteam)
         {
             try
             {
-                if (string.Equals(Path.GetFullPath(process.MainModule?.FileName ?? ""), target, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
+                editor.StartSteamBongoCat();
             }
-            catch
+            catch (Exception ex)
             {
-                return true;
+                MessageBox.Show(
+                    $"Steam Bongo Cat 启动失败：\n\n{ex.Message}",
+                    "Nikki Bongo Cat",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+
+            return;
+        }
+
+        if (options.LaunchPet)
+        {
+            try
+            {
+                editor.StartPet();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"桌宠启动失败：\n\n{ex.Message}",
+                    "Nikki Bongo Cat",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return;
             }
         }
 
-        return false;
+        Application.Run(new Form1());
     }
 
-    private static string FindRootDirectory()
+    private sealed record LaunchOptions(bool LaunchPet, bool StartSteam, bool ShowHelp)
     {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
+        public static LaunchOptions Parse(IEnumerable<string> args)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "BongoCatMver.exe"))
-                && File.Exists(Path.Combine(directory.FullName, "config.json")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
+            var values = args.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var steamHosted = values.Contains("--steam-launcher")
+                || values.Contains("--attach-steam-bongo-cat");
+            var startSteam = values.Contains("--steam");
+            var launchPet = steamHosted || values.Contains("--launch-pet");
+            var showHelp = values.Contains("--help") || values.Contains("-h") || values.Contains("/?");
+            return new LaunchOptions(launchPet, startSteam, showHelp);
         }
-
-        return Directory.GetCurrentDirectory();
     }
 }

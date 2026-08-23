@@ -18,14 +18,14 @@ artifacts/
 
 # Local tools and scratch output
 /.tmp/
-/.tools/.store/
-/.tools/ilspycmd.exe
+/.tools/
 /.external/
 
 # Runtime backups and generated packages
 /.petstats_backups/
 /.petstats_composer/
 /打包输出/
+/PetStatsOverlay/pet-stats-settings.json
 
 # Accidental or redundant local copies
 /img/standard/cat_model_broken_*/

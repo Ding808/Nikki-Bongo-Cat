@@ -15,9 +15,10 @@ public sealed partial class Form1 : Form
     private const int ModelRowTopY = 242;
     private const int ModelRowSpacing = 28;
     private const int FooterGapWithoutModelRows = 18;
-    private const int FooterGapAfterModelRows = 56;
+    private const int FooterGapAfterModelRows = 24;
     private const int FooterBottomPadding = 38;
     private const int BasePositionGap = 8;
+    private const int DpiBaseline = 96;
     private const int GwlExStyle = -20;
     private const int WsExTransparent = 0x00000020;
     private const int WsExLayered = 0x00080000;
@@ -28,7 +29,6 @@ public sealed partial class Form1 : Form
     private readonly KeyboardCounter inputCounter;
     private readonly PetWindowController petController = new();
     private readonly BongoCatConfigEditor bongoConfig = new();
-    private readonly bool launchPetThroughSteam;
     private readonly System.Windows.Forms.Timer refreshTimer;
     private readonly System.Windows.Forms.Timer inputFlushTimer;
     private readonly System.Windows.Forms.Timer saveTimer;
@@ -69,16 +69,16 @@ public sealed partial class Form1 : Form
     private bool expanded;
     private bool hasUnsavedInput;
     private bool usageRefreshRunning;
+    private bool runtimeTimersStarted;
     private bool hasSeenPetWindow;
     private bool entryVisible;
     private bool overlayClickThrough;
     private double currentUiScale = 1D;
     private DateTime suppressPetMissingCloseUntil = DateTime.MinValue;
 
-    public Form1(bool launchPetThroughSteam = false)
+    public Form1()
     {
         InitializeComponent();
-        this.launchPetThroughSteam = launchPetThroughSteam;
 
         store = new StatsStore();
         tokenLogReader = new TokenLogReader(store.Settings, store.DataDirectory);
@@ -109,6 +109,7 @@ public sealed partial class Form1 : Form
         SetExpanded(false);
         HideStatsWindow();
         UpdateView(cachedUsage);
+        StartRuntimeTimers();
     }
 
     protected override bool ShowWithoutActivation => true;
@@ -126,13 +127,24 @@ public sealed partial class Form1 : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        StartRuntimeTimers();
+        BeginUsageRefresh();
+        FollowPet();
+    }
+
+    private void StartRuntimeTimers()
+    {
+        if (runtimeTimersStarted)
+        {
+            return;
+        }
+
+        runtimeTimersStarted = true;
         inputCounter.Start();
         refreshTimer.Start();
         inputFlushTimer.Start();
         saveTimer.Start();
         followTimer.Start();
-        BeginUsageRefresh();
-        FollowPet();
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -174,6 +186,7 @@ public sealed partial class Form1 : Form
         });
         menu.Items.Add("Lock pet (Num -)", null, (_, _) => SetPetLock(true));
         menu.Items.Add("Unlock pet (Num +)", null, (_, _) => SetPetLock(false));
+        menu.Items.Add(CreateSkinMenu());
         menu.Items.Add("Customize pet", null, (_, _) => OpenCustomizationForm());
         menu.Items.Add("Open settings", null, (_, _) => Process.Start(new ProcessStartInfo
         {
@@ -208,6 +221,7 @@ public sealed partial class Form1 : Form
             SetExpanded(true);
             ShowStatsWindow();
         });
+        menu.Items.Add(CreateSkinMenu());
         menu.Items.Add("自定义桌宠", null, (_, _) => OpenCustomizationForm());
         menu.Items.Add("重启桌宠", null, (_, _) => RestartPetAndShowOverlay());
         menu.Items.Add("退出统计浮窗", null, (_, _) => Close());
@@ -421,7 +435,7 @@ public sealed partial class Form1 : Form
 
         // Header: 🌸 今日陪伴 ✨ ........ ×
         SetBoundsScaled(titleLabel, 18, 14, 300, 28);
-        SetBoundsScaled(closeLabel, 386, 14, 22, 22);
+        SetBoundsScaled(closeLabel, 384, 12, 26, 26);
         statusLabel.Visible = false;
         subtitleLabel.Visible = false;
 
@@ -494,19 +508,19 @@ public sealed partial class Form1 : Form
 
     private void SetFixedSizeAndLayout()
     {
-        const double fixedScale = 1D;
+        var dpiScale = Math.Clamp(DeviceDpi / (double)DpiBaseline, 1D, 3D);
         var baseSize = expanded ? GetExpandedBaseSize() : CollapsedBaseSize;
-        var nextSize = baseSize;
+        var nextSize = ScaleSize(baseSize, dpiScale);
 
-        if (ClientSize != nextSize || Math.Abs(currentUiScale - fixedScale) > 0.01D)
+        if (ClientSize != nextSize || Math.Abs(currentUiScale - dpiScale) > 0.01D)
         {
-            currentUiScale = fixedScale;
+            currentUiScale = dpiScale;
             ClientSize = nextSize;
             LayoutUi();
         }
         else
         {
-            currentUiScale = fixedScale;
+            currentUiScale = dpiScale;
         }
 
         ApplyWindowRegion();
@@ -599,7 +613,9 @@ public sealed partial class Form1 : Form
 
     private Font ScaledFont(float size, FontStyle style)
     {
-        return new Font(Font.FontFamily, Math.Max(6F, size * (float)currentUiScale), style, GraphicsUnit.Point);
+        // Point-sized fonts already account for monitor DPI. Only bounds and
+        // drawing coordinates use currentUiScale, otherwise text is scaled twice.
+        return new Font(Font.FontFamily, Math.Max(6F, size), style, GraphicsUnit.Point);
     }
 
     private void SetBoundsScaled(Control control, int x, int y, int width, int height)
@@ -623,7 +639,11 @@ public sealed partial class Form1 : Form
             if (customizationForm is null || customizationForm.IsDisposed)
             {
                 customizationForm = new CustomizationForm(bongoConfig);
-                customizationForm.RestartAndShowRequested += (_, _) => RestartPetAndShowOverlay();
+                customizationForm.RestartAndShowRequested += (_, _) =>
+                {
+                    RestartPetAndShowOverlay();
+                    RefreshSkinMenuChecks();
+                };
                 customizationForm.FormClosed += (_, _) => customizationForm = null;
             }
 
@@ -664,7 +684,7 @@ public sealed partial class Form1 : Form
         suppressPetMissingCloseUntil = DateTime.UtcNow.AddSeconds(8);
         SetExpanded(true);
         ShowStatsWindow();
-        bongoConfig.RestartPet(launchPetThroughSteam);
+        bongoConfig.RestartPet();
 
         var attempts = 0;
         var retryTimer = new System.Windows.Forms.Timer { Interval = 500 };
@@ -682,6 +702,68 @@ public sealed partial class Form1 : Form
             }
         };
         retryTimer.Start();
+    }
+
+    private ToolStripMenuItem CreateSkinMenu()
+    {
+        var skinMenu = new ToolStripMenuItem("切换皮肤");
+        foreach (var skin in bongoConfig.LoadBuiltInSkins())
+        {
+            var skinItem = new ToolStripMenuItem(skin.Name)
+            {
+                Checked = skin.IsActive,
+                Tag = skin.Id
+            };
+            skinItem.Click += (_, _) => SwitchSkin(skin.Id);
+            skinMenu.DropDownItems.Add(skinItem);
+        }
+
+        return skinMenu;
+    }
+
+    private void SwitchSkin(string skinId)
+    {
+        try
+        {
+            bongoConfig.SelectBuiltInSkin(skinId);
+            customizationForm?.ReloadFromDisk();
+            RefreshSkinMenuChecks();
+            RestartPetAndShowOverlay();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "切换皮肤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void RefreshSkinMenuChecks()
+    {
+        var activeId = bongoConfig.LoadBuiltInSkins().FirstOrDefault(skin => skin.IsActive)?.Id ?? "";
+        RefreshSkinMenuChecks(ContextMenuStrip?.Items, activeId);
+        RefreshSkinMenuChecks(trayIcon.ContextMenuStrip?.Items, activeId);
+    }
+
+    private static void RefreshSkinMenuChecks(ToolStripItemCollection? items, string activeId)
+    {
+        if (items is null)
+        {
+            return;
+        }
+
+        foreach (ToolStripItem item in items)
+        {
+            if (item is not ToolStripMenuItem menuItem)
+            {
+                continue;
+            }
+
+            if (menuItem.Tag is string skinId)
+            {
+                menuItem.Checked = string.Equals(skinId, activeId, StringComparison.OrdinalIgnoreCase);
+            }
+
+            RefreshSkinMenuChecks(menuItem.DropDownItems, activeId);
+        }
     }
 
     private void ConfigureSoftButton(Button button, string text)
@@ -749,6 +831,7 @@ public sealed partial class Form1 : Form
         menu.Items.Add(metricItem);
         menu.Items.Add(new ToolStripSeparator());
 
+        menu.Items.Add(CreateSkinMenu());
         menu.Items.Add("自定义桌宠", null, (_, _) => OpenCustomizationForm());
         menu.Items.Add("重启桌宠", null, (_, _) => RestartPetAndShowOverlay());
         menu.Items.Add(new ToolStripSeparator());
@@ -960,11 +1043,20 @@ public sealed partial class Form1 : Form
     {
         var gap = Scale(BasePositionGap);
         var centeredX = petRect.Left + petRect.Width / 2 - Width / 2;
-        var target = expanded
-            ? new Point(centeredX, petRect.Bottom + gap)
-            : new Point(centeredX, petRect.Top - Height - gap);
+        var centeredY = petRect.Top + petRect.Height / 2 - Height / 2;
+        var above = new Point(centeredX, petRect.Top - Height - gap);
+        var below = new Point(centeredX, petRect.Bottom + gap);
+        var left = new Point(petRect.Left - Width - gap, centeredY);
+        var right = new Point(petRect.Right + gap, centeredY);
 
-        return ClampToWorkingArea(target, area);
+        // The compact entry normally sits over the pet. The expanded card prefers
+        // below/alongside it. If that side would leave the screen, select another
+        // side that stays attached instead of clamping the card to a distant edge.
+        var candidates = expanded
+            ? new[] { below, left, right, above }
+            : new[] { above, below, left, right };
+        var petSafeRect = Rectangle.Inflate(petRect, gap, gap);
+        return GetLeastOverlappingLocation(candidates, area, petSafeRect);
     }
 
     private void UpdateEntryVisibility(Rectangle petRect)
@@ -1034,14 +1126,19 @@ public sealed partial class Form1 : Form
     private Point GetLeastOverlappingLocation(IEnumerable<Point> candidates, Rectangle area, Rectangle petSafeRect)
     {
         return candidates
-            .Select(candidate =>
+            .Select((candidate, preference) =>
             {
                 var location = ClampToWorkingArea(candidate, area);
                 var bounds = new Rectangle(location, Size);
-                return (Location: location, Overlap: GetIntersectionArea(bounds, petSafeRect));
+                return (
+                    Location: location,
+                    Overlap: GetIntersectionArea(bounds, petSafeRect),
+                    BoundaryShift: DistanceSquared(location, candidate),
+                    Preference: preference);
             })
             .OrderBy(candidate => candidate.Overlap)
-            .ThenBy(candidate => DistanceSquared(candidate.Location, Location))
+            .ThenBy(candidate => candidate.BoundaryShift)
+            .ThenBy(candidate => candidate.Preference)
             .First()
             .Location;
     }
@@ -1202,11 +1299,19 @@ public sealed partial class Form1 : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        SetFixedSizeAndLayout();
         if (overlayClickThrough)
         {
             var style = GetWindowLongPtr(Handle, GwlExStyle);
             SetWindowLongPtr(Handle, GwlExStyle, style | WsExLayered | WsExTransparent);
         }
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        SetFixedSizeAndLayout();
+        FollowPet();
     }
 
     protected override void OnPaint(PaintEventArgs e)

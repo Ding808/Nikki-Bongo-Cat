@@ -29,7 +29,9 @@ partial class Form1
     private void InitializeComponent()
     {
         this.components = new System.ComponentModel.Container();
-        this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+        // Form1 owns a small custom-drawn layout. DPI scaling is applied once in
+        // Form1 so WinForms does not independently resize only part of the UI.
+        this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
         this.ClientSize = new System.Drawing.Size(800, 450);
         this.Text = "Form1";
     }

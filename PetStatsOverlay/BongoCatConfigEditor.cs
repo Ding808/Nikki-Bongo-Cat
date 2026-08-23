@@ -14,6 +14,9 @@ public sealed class BongoCatConfigEditor
     private readonly string live2DLibraryDirectory;
     private readonly string backupDirectory;
     private const string SteamBongoCatAppId = "3419430";
+    public const string PinkSkinId = "current_nuannuan";
+    public const string PurpleSkinId = "nuannuan";
+    private const string DefaultLive2DModelId = PinkSkinId;
     private const string ProfileFileName = "petstats-live2d-profile.json";
     private const string ProfileAssetsDirectoryName = "petstats-assets";
 
@@ -32,6 +35,29 @@ public sealed class BongoCatConfigEditor
     public string StandardModelDirectory => standardModelDirectory;
     public string Live2DLibraryDirectory => live2DLibraryDirectory;
     public string BackupDirectory => backupDirectory;
+
+    public IReadOnlyList<BuiltInSkinInfo> LoadBuiltInSkins()
+    {
+        var activeId = ReadActiveLive2DModelId(GetObject(LoadConfig(), "standard"));
+        return new[]
+        {
+            new BuiltInSkinInfo(PinkSkinId, "粉色暖暖", string.Equals(activeId, PinkSkinId, StringComparison.OrdinalIgnoreCase)),
+            new BuiltInSkinInfo(PurpleSkinId, "紫色暖暖", string.Equals(activeId, PurpleSkinId, StringComparison.OrdinalIgnoreCase))
+        }
+        .Where(skin => IsValidLive2DModelDirectory(ResolveLive2DModelDirectory(skin.Id)))
+        .ToList();
+    }
+
+    public void SelectBuiltInSkin(string skinId)
+    {
+        if (!string.Equals(skinId, PinkSkinId, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(skinId, PurpleSkinId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentOutOfRangeException(nameof(skinId), skinId, "未知的内置皮肤。");
+        }
+
+        SelectLive2DModel(skinId);
+    }
 
     public string GetCurrentStandardPreviewPath()
     {
@@ -188,7 +214,13 @@ public sealed class BongoCatConfigEditor
         SaveCurrentLive2DProfile(snapshot);
     }
 
-    public void RestartPet(bool launchThroughSteam = false)
+    public void StartPet()
+    {
+        SyncActiveLive2DModelToRuntime();
+        StartBundledPet();
+    }
+
+    public void RestartPet()
     {
         foreach (var process in Process.GetProcessesByName("BongoCatMver"))
         {
@@ -203,31 +235,61 @@ public sealed class BongoCatConfigEditor
             }
         }
 
-        SyncActiveLive2DModelToRuntime();
-
-        if (launchThroughSteam)
-        {
-            StartSteamPet();
-            return;
-        }
-
-        var petPath = Path.Combine(rootDirectory, "BongoCatMver.exe");
-        if (File.Exists(petPath))
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = petPath,
-                WorkingDirectory = rootDirectory,
-                UseShellExecute = true
-            });
-        }
+        StartPet();
     }
 
-    private static void StartSteamPet()
+    private void StartBundledPet()
+    {
+        var petPath = Path.Combine(rootDirectory, "BongoCatMver.exe");
+        if (!File.Exists(petPath))
+        {
+            throw new FileNotFoundException("找不到 BongoCatMver.exe。", petPath);
+        }
+
+        var target = Path.GetFullPath(petPath);
+        foreach (var process in Process.GetProcessesByName("BongoCatMver"))
+        {
+            try
+            {
+                if (string.Equals(Path.GetFullPath(process.MainModule?.FileName ?? ""), target, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                process.Kill();
+                process.WaitForExit(2_000);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    if (process.HasExited)
+                    {
+                        continue;
+                    }
+                }
+                catch
+                {
+                    // Fall through to the actionable error below.
+                }
+
+                throw new InvalidOperationException("检测到另一个 BongoCatMver 实例，但无法关闭。请先从托盘退出旧桌宠后重试。", ex);
+            }
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = petPath,
+            WorkingDirectory = rootDirectory,
+            UseShellExecute = true
+        });
+    }
+
+    public void StartSteamBongoCat()
     {
         Process.Start(new ProcessStartInfo
         {
-            FileName = $"steam://rungameid/{SteamBongoCatAppId}",
+            FileName = $"steam://run/{SteamBongoCatAppId}",
             UseShellExecute = true
         });
     }
@@ -650,7 +712,12 @@ public sealed class BongoCatConfigEditor
             var model = JsonNode.Parse(File.ReadAllText(modelPath)) as JsonObject;
             var references = model?["FileReferences"] as JsonObject;
             var moc = references?["Moc"]?.GetValue<string>() ?? "";
-            var name = Path.GetFileNameWithoutExtension(moc);
+            var profile = ReadLive2DProfile(modelRoot);
+            var name = profile?.ModelName ?? "";
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = Path.GetFileNameWithoutExtension(moc);
+            }
             if (string.IsNullOrWhiteSpace(name))
             {
                 name = Path.GetFileName(directory);
@@ -762,10 +829,13 @@ public sealed class BongoCatConfigEditor
 
     private void WriteLive2DProfile(string modelDirectory, BongoCustomizationSnapshot snapshot)
     {
+        var existingProfile = ReadLive2DProfile(modelDirectory);
         var profile = new Live2DModelProfile
         {
             Version = 1,
-            ModelName = ReadModelNameFromDirectory(modelDirectory),
+            ModelName = string.IsNullOrWhiteSpace(existingProfile?.ModelName)
+                ? ReadModelNameFromDirectory(modelDirectory)
+                : existingProfile.ModelName,
             Live2DEnabled = snapshot.Live2DEnabled,
             AnimationKeys = snapshot.AnimationKeys,
             FaceKeys = snapshot.FaceKeys,
@@ -1333,19 +1403,13 @@ public sealed class BongoCatConfigEditor
 
     private string GetDefaultStandardModelDirectory()
     {
-        var candidates = Directory.Exists(standardAssetDirectory)
-            ? Directory.GetDirectories(standardAssetDirectory, "cat_model_backup_*", SearchOption.TopDirectoryOnly)
-                .OrderByDescending(directory => directory.Contains("152415", StringComparison.OrdinalIgnoreCase))
-                .ThenByDescending(directory => directory.Contains("141434", StringComparison.OrdinalIgnoreCase))
-                .ThenByDescending(directory => Directory.GetLastWriteTime(directory))
-                .ToList()
-            : [];
-
-        candidates.Insert(0, Path.Combine(standardAssetDirectory, "cat_model_backup_20260603_152415"));
-        candidates.Insert(1, Path.Combine(standardAssetDirectory, "cat_model_backup_20260603_141434"));
+        var candidates = new[]
+        {
+            Path.Combine(live2DLibraryDirectory, DefaultLive2DModelId),
+            Path.Combine(live2DLibraryDirectory, "nuannuan")
+        };
 
         return candidates
-            .Distinct(StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(IsNuannuanModelDirectory)
             ?? "";
     }
@@ -1463,6 +1527,8 @@ public sealed class Live2DConfigSnapshot
 }
 
 public sealed record Live2DExpressionInfo(string Name, string File, string ParameterSummary, string TexturePath);
+
+public sealed record BuiltInSkinInfo(string Id, string Name, bool IsActive);
 
 public sealed record Live2DModelInfo(string Id, string Name, string Directory, string ModelFile, string PreviewTexturePath, bool IsActive)
 {

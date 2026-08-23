@@ -45,6 +45,11 @@ public sealed class CustomizationForm : Form
         base.OnFormClosed(e);
     }
 
+    public void ReloadFromDisk()
+    {
+        LoadSnapshot();
+    }
+
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         var grid = GetActiveHotkeyGrid();
@@ -218,6 +223,10 @@ public sealed class CustomizationForm : Form
             BackColor = BackColor
         };
 
+        left.Controls.Add(MakeTitle("快速换肤（自动记住上次选择）"));
+        left.Controls.Add(MakeButton("粉色暖暖（默认）", (_, _) => ApplyBuiltInSkin(BongoCatConfigEditor.PinkSkinId), 230));
+        left.Controls.Add(MakeButton("紫色暖暖", (_, _) => ApplyBuiltInSkin(BongoCatConfigEditor.PurpleSkinId), 230));
+        left.Controls.Add(Spacer(10));
         left.Controls.Add(MakeTitle("Live2D 模型"));
         ConfigureLive2DModelCombo();
         left.Controls.Add(live2DModelCombo);
@@ -748,6 +757,21 @@ public sealed class CustomizationForm : Form
         {
             ShowError(ex);
         }
+    }
+
+    private void ApplyBuiltInSkin(string skinId)
+    {
+        var skin = live2DModelCombo.Items
+            .OfType<Live2DModelInfo>()
+            .FirstOrDefault(model => string.Equals(model.Id, skinId, StringComparison.OrdinalIgnoreCase));
+        if (skin is null)
+        {
+            SetStatus("找不到对应的内置皮肤资源。");
+            return;
+        }
+
+        live2DModelCombo.SelectedItem = skin;
+        ApplySelectedLive2DModelAndRestart(this, EventArgs.Empty);
     }
 
     private void ImportLive2DModel(object? sender, EventArgs e)

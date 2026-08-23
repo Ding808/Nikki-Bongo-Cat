@@ -19,6 +19,7 @@ public sealed class PetWindowController
 
     private readonly Dictionary<IntPtr, nint> originalStyles = new();
     private IntPtr cachedPetWindow;
+    private uint cachedPetProcessId;
 
     public bool IsLocked { get; private set; }
 
@@ -84,6 +85,8 @@ public sealed class PetWindowController
         if (cachedPetWindow != IntPtr.Zero
             && IsWindow(cachedPetWindow)
             && IsWindowVisible(cachedPetWindow)
+            && GetWindowThreadProcessId(cachedPetWindow, out var cachedProcessId) != 0
+            && cachedProcessId == cachedPetProcessId
             && GetWindowRect(cachedPetWindow, out var cachedRect)
             && cachedRect.Right > cachedRect.Left
             && cachedRect.Bottom > cachedRect.Top)
@@ -92,7 +95,8 @@ public sealed class PetWindowController
         }
 
         cachedPetWindow = IntPtr.Zero;
-        var candidates = new List<(IntPtr Hwnd, Rectangle Rect, string ProcessName, string Title)>();
+        cachedPetProcessId = 0;
+        var candidates = new List<(IntPtr Hwnd, uint ProcessId, Rectangle Rect, string ProcessName, string Title)>();
         EnumWindows((hwnd, _) =>
         {
             if (!IsWindowVisible(hwnd))
@@ -117,7 +121,11 @@ public sealed class PetWindowController
             }
 
             var title = GetWindowTitle(hwnd);
-            if (!LooksLikeBongoCat(processName) && !LooksLikeBongoCat(title))
+            // Window titles are not identity. For example, an Explorer window open
+            // at this repository is titled "Nikki-Bongo-Cat" and used to be cached
+            // before the real pet finished starting. That full-screen rectangle
+            // pinned the companion entry to the top of the monitor forever.
+            if (!LooksLikeBongoCatProcess(processName))
             {
                 return true;
             }
@@ -130,28 +138,29 @@ public sealed class PetWindowController
             var rectangle = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
             if (rectangle.Width > 20 && rectangle.Height > 20)
             {
-                candidates.Add((hwnd, rectangle, processName, title));
+                candidates.Add((hwnd, processId, rectangle, processName, title));
             }
 
             return true;
         }, IntPtr.Zero);
 
-        cachedPetWindow = candidates
+        var selected = candidates
             .OrderByDescending(candidate => candidate.ProcessName.Contains("Mver", StringComparison.OrdinalIgnoreCase))
             .ThenByDescending(candidate => candidate.Title.Contains("Bongo Cat", StringComparison.OrdinalIgnoreCase))
             .ThenByDescending(candidate => candidate.Rect.Width * candidate.Rect.Height)
-            .Select(candidate => candidate.Hwnd)
             .FirstOrDefault();
+        cachedPetWindow = selected.Hwnd;
+        cachedPetProcessId = selected.ProcessId;
 
         return cachedPetWindow;
     }
 
-    private static bool LooksLikeBongoCat(string value)
+    private static bool LooksLikeBongoCatProcess(string value)
     {
         var normalized = new string(value
             .Where(character => char.IsLetterOrDigit(character))
             .ToArray());
-        return normalized.Contains("BongoCat", StringComparison.OrdinalIgnoreCase);
+        return normalized.StartsWith("BongoCat", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GetWindowTitle(IntPtr hwnd)
