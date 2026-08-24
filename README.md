@@ -53,12 +53,6 @@
 
 设置一次后，直接在 Steam 中点击“开始游戏”即可。Steam 启动的是统计程序，统计程序只启动一只本地暖暖桌宠；统计程序保持运行期间，Steam 会把时长记录到 Bongo Cat。关闭桌宠后统计程序会一起退出，Steam 结束计时。
 
-不要再使用下面这种写法，它会保留原始 `%command%` 启动链，可能出现两个桌宠：
-
-```text
-E:\...\BongoCatMver.exe " %command%"
-```
-
 完成 Steam 启动选项配置后，也可以双击 `StartPetWithStats.Steam.cmd`。它只负责请求 Steam 启动 Bongo Cat，后续仍由上面的 `--steam-launcher` 接管。
 
 ## 启动参数
