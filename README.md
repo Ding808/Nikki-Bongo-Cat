@@ -6,7 +6,7 @@
 
 普通用户请从 [GitHub Releases](https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest) 下载 `Nikki-Bongo-Cat-win-x64.zip`，完整解压后再使用。不要下载仓库页面中“Code → Download ZIP”生成的源码包：源码包按照 Git 规则不包含编译后的 `PetStatsOverlay.exe`。
 
-如果确实下载了源码包，电脑上安装 .NET 9 SDK 后双击 `StartPetWithStats.cmd`，脚本会自动生成缺失的统计程序；没有开发环境时请改用 Releases 中的成品压缩包。
+成品包已经包含所有运行组件，用户无需安装 .NET、SDK 或 Visual Studio，也不需要执行任何编译操作。
 
 ## 功能
 
@@ -29,41 +29,27 @@
 
 ## 快速开始
 
-使用打包版本时，请完整解压目录，不要单独移动 EXE、DLL、`img` 或 `Resources`。
+请完整解压成品包，不要单独移动 EXE、DLL、`img` 或 `Resources`。
 
 ### 普通模式
 
 双击 `StartPetWithStats.cmd`。它会启动本地桌宠和统计浮窗。
 
-源码仓库也可以直接执行发布目录中的程序：
-
-```powershell
-.\PetStatsOverlay\bin\Release\net9.0-windows\win-x64\publish\PetStatsOverlay.exe --launch-pet
-```
-
-打包发行版则通常是 `PetStatsOverlay\PetStatsOverlay.exe --launch-pet`。不要把其中的 EXE 单独移动出去；程序还需要同一套目录中的设置、模型和桌宠运行文件。
+成品包中的统计程序已经自包含，不需要安装任何开发环境。不要把其中的 EXE 单独移动出去；程序还需要同一套目录中的设置、模型和桌宠运行文件。
 
 ### Steam 游玩时长模式
 
 推荐先双击 `CopySteamLaunchOption.cmd`。它会读取当前解压位置，自动生成正确的绝对路径并复制到剪贴板。然后在 Steam 库中右键 Bongo Cat，打开“属性 → 通用 → 启动选项”，删除原有内容并直接粘贴；不需要照抄作者电脑上的盘符或目录。
 
-如果需要手动填写，请根据正在使用的版本从下面两种写法中选择一种。
-
-打包发行版：
+如果需要手动填写，格式如下：
 
 ```text
 "<你的解压目录>\Nikki-Bongo-Cat\PetStatsOverlay\PetStatsOverlay.exe" --steam-launcher %command%
 ```
 
-当前源码仓库的 Release 发布版：
-
-```text
-"<你的源码目录>\PetStatsOverlay\bin\Release\net9.0-windows\win-x64\publish\PetStatsOverlay.exe" --steam-launcher %command%
-```
-
 启动选项看起来较长是正常的，不会影响 Steam 启动或游玩时长统计。请保留 EXE 路径外侧的英文双引号；路径中含空格或中文也可以正常使用。
 
-上面两条路径只需填写一条，并以电脑上实际存在的文件为准。不要为了缩短启动选项而单独移动 `PetStatsOverlay.exe`，否则它可能找不到 `config.json`、桌宠程序或模型资源。
+请以电脑上实际存在的文件为准。不要为了缩短启动选项而单独移动 `PetStatsOverlay.exe`，否则它可能找不到 `config.json`、桌宠程序或模型资源。
 
 设置一次后，直接在 Steam 中点击“开始游戏”即可。Steam 启动的是统计程序，统计程序只启动一只本地暖暖桌宠；统计程序保持运行期间，Steam 会把时长记录到 Bongo Cat。关闭桌宠后统计程序会一起退出，Steam 结束计时。
 
@@ -87,6 +73,14 @@ E:\...\BongoCatMver.exe " %command%"
 旧参数 `--attach-steam-bongo-cat` 仍可使用，它与 `--steam-launcher` 等效。
 
 ## 常见问题
+
+### 软件在 D 盘，为什么窗口显示 `C:\Windows\System32\cmd.exe`
+
+这是正常现象。`.cmd` 启动脚本由 Windows 自带的 `cmd.exe` 执行，而 `cmd.exe` 固定安装在系统盘；它不代表桌宠正在从 C 盘读取文件。启动脚本会通过自身位置切换到实际解压目录，并在报错信息中显示 `Launcher folder`。如果文件夹名是 `Nikki-Bongo-Cat-main`，通常说明下载的是 GitHub 源码 ZIP，而不是 Releases 中包含 EXE 的成品包。
+
+### 提示找不到 `PetStatsOverlay.exe`
+
+这表示当前文件夹不完整，或者下载成了 GitHub 的源码包。请从 Releases 下载 `Nikki-Bongo-Cat-win-x64.zip` 并完整解压；成品包不要求安装 .NET，也不会要求用户编译。
 
 ### “今日陪伴”停在屏幕顶部或不跟随
 
@@ -138,7 +132,7 @@ img\standard\live2d_models
 
 `petstats-live2d-profile.json` 保存模型名称、动作键、表情键等配置；`petstats-assets` 保存该模型配套的桌宠图片和音效。
 
-## 从源码构建
+## 开发者：从源码构建
 
 在仓库根目录执行：
 

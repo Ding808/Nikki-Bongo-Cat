@@ -1,6 +1,8 @@
 @echo off
 setlocal
 set "ROOT=%~dp0"
+title Nikki Bongo Cat - Copy Steam Launch Option
+cd /d "%ROOT%"
 set "STATS=%ROOT%PetStatsOverlay\PetStatsOverlay.exe"
 
 if not exist "%STATS%" set "STATS=%ROOT%PetStatsOverlay\bin\Release\net9.0-windows\win-x64\publish\PetStatsOverlay.exe"

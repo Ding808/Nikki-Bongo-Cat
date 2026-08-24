@@ -1,22 +1,11 @@
 @echo off
 setlocal
 set "ROOT=%~dp0"
+title Nikki Bongo Cat Launcher
+cd /d "%ROOT%"
 
 call :FindStats
-if defined STATS goto Launch
-
-where dotnet.exe >nul 2>nul
-if errorlevel 1 goto MissingRuntime
-
-if not exist "%ROOT%PetStatsOverlay\PetStatsOverlay.csproj" goto MissingRuntime
-
-echo [Nikki Bongo Cat] PetStatsOverlay.exe is missing.
-echo This looks like a source download. Building a portable copy now...
-dotnet publish "%ROOT%PetStatsOverlay\PetStatsOverlay.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
-if errorlevel 1 goto BuildFailed
-
-call :FindStats
-if not defined STATS goto BuildFailed
+if not defined STATS goto MissingExecutable
 
 :Launch
 for %%I in ("%STATS%") do set "STATSDIR=%%~dpI"
@@ -31,21 +20,19 @@ if not defined STATS if exist "%ROOT%PetStatsOverlay\bin\Release\net9.0-windows\
 if not defined STATS if exist "%ROOT%PetStatsOverlay\bin\Debug\net9.0-windows\PetStatsOverlay.exe" set "STATS=%ROOT%PetStatsOverlay\bin\Debug\net9.0-windows\PetStatsOverlay.exe"
 exit /b 0
 
-:MissingRuntime
+:MissingExecutable
 echo.
 echo [Nikki Bongo Cat] Cannot find PetStatsOverlay.exe.
-echo You downloaded the source code instead of the packaged release.
-echo Download Nikki-Bongo-Cat-win-x64.zip from:
+echo Launcher folder: %ROOT%
+echo.
+echo This is not a C: or D: drive problem.
+echo C:\Windows\System32\cmd.exe is the normal Windows command shell.
+echo.
+echo This folder is incomplete or is the GitHub source package.
+echo Download the ready-to-use Nikki-Bongo-Cat-win-x64.zip from:
 echo https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest
 echo.
-echo Developers can also install the .NET 9 SDK and run this file again.
-pause
-exit /b 1
-
-:BuildFailed
-echo.
-echo [Nikki Bongo Cat] Automatic build failed.
-echo Download Nikki-Bongo-Cat-win-x64.zip from:
-echo https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest
+echo Do not download the "Source code" or "Code - Download ZIP" package.
+echo The ready-to-use package needs no .NET installation or build step.
 pause
 exit /b 1
