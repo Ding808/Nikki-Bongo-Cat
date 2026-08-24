@@ -66,36 +66,6 @@
 
 旧参数 `--attach-steam-bongo-cat` 仍可使用，它与 `--steam-launcher` 等效。
 
-## 常见问题
-
-### 软件在 D 盘，为什么窗口显示 `C:\Windows\System32\cmd.exe`
-
-这是正常现象。`.cmd` 启动脚本由 Windows 自带的 `cmd.exe` 执行，而 `cmd.exe` 固定安装在系统盘；它不代表桌宠正在从 C 盘读取文件。启动脚本会通过自身位置切换到实际解压目录，并在报错信息中显示 `Launcher folder`。如果文件夹名是 `Nikki-Bongo-Cat-main`，通常说明下载的是 GitHub 源码 ZIP，而不是 Releases 中包含 EXE 的成品包。
-
-### 提示找不到 `PetStatsOverlay.exe`
-
-这表示当前文件夹不完整，或者下载成了 GitHub 的源码包。请从 Releases 下载 `Nikki-Bongo-Cat-win-x64.zip` 并完整解压；成品包不要求安装 .NET，也不会要求用户编译。
-
-### “今日陪伴”停在屏幕顶部或不跟随
-
-新版已经修复项目文件夹窗口被误识别成桌宠的问题，并且会在桌宠延迟出现后继续寻找。更新程序后，需要先从托盘退出旧统计浮窗并停止 Steam 中的 Bongo Cat，再重新点击“开始”，确保 Steam 没有继续使用内存中的旧版 EXE。
-
-### 同时出现两个桌宠
-
-确认 Steam 启动选项中只有一条 `PetStatsOverlay.exe --steam-launcher %command%`，不要再直接调用 `BongoCatMver.exe`，也不要在外层额外给 `%command%` 加引号。
-
-### 看不到“今日陪伴”入口
-
-默认情况下，将鼠标移到桌宠附近时会显示入口。也可以从系统托盘打开统计面板，在“高级详情”中启用“常驻入口”。
-
-### 字体或面板边缘被裁切
-
-统计浮窗支持 Windows 高 DPI 和多显示器缩放。更新后请完整退出旧浮窗再启动；如果只覆盖了磁盘文件而旧进程仍在运行，界面仍会使用旧版布局。
-
-### Steam 没有累计时长
-
-需要从 Steam 库中点击 Bongo Cat 的“开始”。普通模式的 `StartPetWithStats.cmd` 不会让 Steam 计时；`StartPetWithStats.Steam.cmd` 会请求 Steam 启动游戏，可作为桌面快捷入口使用。
-
 ## 使用说明
 
 - 双击桌宠旁边的粉色入口可展开统计面板。
