@@ -2,6 +2,12 @@
 
 一个以暖暖 Live2D 模型为核心的 Windows 桌宠。项目在 Bongo Cat Mver 运行时之上增加了统计浮窗、模型管理和 Steam Bongo Cat 游玩时长模式。
 
+## 下载
+
+普通用户请从 [GitHub Releases](https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest) 下载 `Nikki-Bongo-Cat-win-x64.zip`，完整解压后再使用。不要下载仓库页面中“Code → Download ZIP”生成的源码包：源码包按照 Git 规则不包含编译后的 `PetStatsOverlay.exe`。
+
+如果确实下载了源码包，电脑上安装 .NET 9 SDK 后双击 `StartPetWithStats.cmd`，脚本会自动生成缺失的统计程序；没有开发环境时请改用 Releases 中的成品压缩包。
+
 ## 功能
 
 - 根据键盘、鼠标输入播放桌宠动作与表情
@@ -39,21 +45,23 @@
 
 ### Steam 游玩时长模式
 
-先在 Steam 库中右键 Bongo Cat，打开“属性 → 通用 → 启动选项”。删除原有内容，然后根据正在使用的版本从下面两种写法中选择一种。
+推荐先双击 `CopySteamLaunchOption.cmd`。它会读取当前解压位置，自动生成正确的绝对路径并复制到剪贴板。然后在 Steam 库中右键 Bongo Cat，打开“属性 → 通用 → 启动选项”，删除原有内容并直接粘贴；不需要照抄作者电脑上的盘符或目录。
+
+如果需要手动填写，请根据正在使用的版本从下面两种写法中选择一种。
 
 打包发行版：
 
 ```text
-"E:\Nikki-Bongo-Cat\PetStatsOverlay\PetStatsOverlay.exe" --steam-launcher %command%
+"<你的解压目录>\Nikki-Bongo-Cat\PetStatsOverlay\PetStatsOverlay.exe" --steam-launcher %command%
 ```
 
 当前源码仓库的 Release 发布版：
 
 ```text
-"E:\Nikki-Bongo-Cat\PetStatsOverlay\bin\Release\net9.0-windows\win-x64\publish\PetStatsOverlay.exe" --steam-launcher %command%
+"<你的源码目录>\PetStatsOverlay\bin\Release\net9.0-windows\win-x64\publish\PetStatsOverlay.exe" --steam-launcher %command%
 ```
 
-启动选项看起来较长是正常的，不会影响 Steam 启动或游玩时长统计。请保留 EXE 路径外侧的英文双引号；路径中含空格或中文也可以正常使用。最稳妥的填写方法是在资源管理器中找到 `PetStatsOverlay.exe`，使用“复制文件地址”，粘贴后再追加 ` --steam-launcher %command%`。
+启动选项看起来较长是正常的，不会影响 Steam 启动或游玩时长统计。请保留 EXE 路径外侧的英文双引号；路径中含空格或中文也可以正常使用。
 
 上面两条路径只需填写一条，并以电脑上实际存在的文件为准。不要为了缩短启动选项而单独移动 `PetStatsOverlay.exe`，否则它可能找不到 `config.json`、桌宠程序或模型资源。
 
@@ -157,6 +165,14 @@ PetStatsOverlay\bin\Release\net9.0-windows\win-x64\publish
 
 保留发布目录在仓库内部的默认位置即可，两个启动脚本会自动找到它。
 
+生成可直接发给普通用户的完整压缩包：
+
+```powershell
+.\BuildRelease.ps1
+```
+
+成品位于 `artifacts\Nikki-Bongo-Cat-win-x64.zip`，其中已经包含自包含的统计程序、桌宠运行文件、模型、启动脚本和 README，不要求用户安装 .NET。推送形如 `v1.0.0` 的 Git 标签时，GitHub Actions 也会自动构建并把同名 ZIP 附加到 GitHub Release；手动运行工作流则会生成可下载的 Actions artifact。
+
 ## 项目结构
 
 ```text
@@ -166,6 +182,8 @@ Nikki-Bongo-Cat/
 ├─ Resources/                  # Bongo Cat 运行资源
 ├─ BongoCatMver.exe            # 桌宠运行时
 ├─ BongoCatUI.exe              # 原生配置界面
+├─ BuildRelease.ps1            # 生成完整 Windows 发布压缩包
+├─ CopySteamLaunchOption.cmd   # 按实际解压路径复制 Steam 启动选项
 ├─ config.json                 # 桌宠配置
 ├─ StartPetWithStats.cmd       # 普通入口，也接受 --steam
 └─ StartPetWithStats.Steam.cmd # Steam 时长模式快捷入口

@@ -1,0 +1,50 @@
+name: Build Windows release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Build portable package
+        shell: pwsh
+        run: ./BuildRelease.ps1
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nikki-Bongo-Cat-win-x64
+          path: artifacts/Nikki-Bongo-Cat-win-x64.zip
+          if-no-files-found: error
+
+      - name: Attach package to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $package = "artifacts/Nikki-Bongo-Cat-win-x64.zip"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $package --clobber
+          }
+          else {
+            gh release create $tag $package --generate-notes --title "Nikki Bongo Cat $tag"
+          }
