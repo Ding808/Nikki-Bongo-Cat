@@ -32,7 +32,8 @@ Follow download and extraction steps **1–2**, then double-click **`StartPetWit
 
 ## Preview
 
-![Pink Nikki desktop pet](docs/images/pet-preview.png)
+![Pink Nikki desktop pet](docs/images/00c3b14e-e289-43dd-910f-4c38961a78c6.png
+)
 
 The actual Live2D pet rendered on a transparent background.
 
