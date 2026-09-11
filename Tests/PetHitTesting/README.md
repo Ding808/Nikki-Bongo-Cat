@@ -6,6 +6,8 @@ Run the deterministic alpha, gesture-state, input-thread and stalled-renderer ch
 dotnet run --project Tests/PetHitTesting/PetHitTesting.csproj -c Release
 ```
 
+The default checks also launch a separate ordinary window and verify its actual Windows Z order during initial attachment, locking, unlocking, gesture preparation, recovery after topmost removal, and disposal. They check that foreground focus is preserved and that the controller does not repeatedly raise the pet above another topmost window.
+
 For native integration, make a separate copy of the bundled renderer and its assets/configuration in a directory whose name contains `pet-hit-probe`. Launch that copy as a normal user and note its process ID. Never target your everyday pet instance or share its configuration with the probe.
 
 ```powershell
@@ -21,3 +23,5 @@ dotnet run --project Tests/PetHitTesting/PetHitTesting.csproj -c Release -- --na
 The gesture check releases mouse buttons and restores the pointer and probe geometry in `finally`, then closes its own backdrop process. Stop the isolated renderer yourself after testing. Do not run concurrent UI automation during this check.
 
 The v1.1.1 regression was exposed by this distinction: restoring the interactive window style succeeded, but the original mouse event had already selected the application behind the transparent pet. The native renderer did not gain focus, so its held-button resize loop never ran. The regression check now requires a real size change, rather than accepting a style change as evidence of a working gesture.
+
+The unlocked-topmost regression additionally starts the real renderer in the ordinary Z-order group before controller attachment. Each subsequent switch to the independent foreground application must leave the renderer above that application's window without taking its focus. The native runtime's existing behavior toward other topmost peers is compared with its own baseline; this update does not change its configuration.

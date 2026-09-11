@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.3 — 2026-09-11
+
+### English
+
+- Kept the pet above ordinary application and browser windows in both locked and unlocked modes. Dragging and resizing no longer remove its always-on-top state.
+- Preserved focus in the application you switch to, transparent-area click-through, and the original window state when the companion exits.
+- Added Windows regression checks for startup, lock/unlock, interaction, and switching foreground windows.
+
+### 简体中文
+
+- 修复解锁时被其他软件或浏览器遮住的问题；锁定、解锁、拖动和缩放时均保持桌宠置顶。
+- 切换应用时保留该应用的输入焦点，维持透明区域穿透；退出统计程序时恢复桌宠原先的窗口状态。
+- 增加启动、锁定／解锁、桌宠交互和切换前台窗口的 Windows 回归检查。
+
 ## v1.1.2 — 2026-09-11
 
 ### English

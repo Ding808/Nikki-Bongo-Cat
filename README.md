@@ -54,6 +54,7 @@ The same interface in Chinese. Language changes apply immediately to the dashboa
 - English by default, with Chinese available directly inside the panel.
 - Independent statistics-panel sizing from 65% to 175%, plus a custom percentage.
 - Drag with the left button or resize with the right button **on the visible pet**. Transparent space around it remains available to other applications.
+- The pet stays above ordinary application and browser windows whether locked or unlocked, without taking focus when you switch applications.
 - Lock mode that passes clicks through the entire pet; Steam launch integration is also available.
 
 ## Requirements

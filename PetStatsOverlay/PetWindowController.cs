@@ -32,7 +32,8 @@ public sealed class PetWindowController : IDisposable
     private PetAlphaFrame? alphaFrame;
     private PetTarget? controlledTarget;
     private nint? appliedStyle;
-    private bool controlledLocked;
+    private bool controlledTopMost;
+    private int topMostRepairRequested;
     private ControlRequest? lastControlRequest;
     private long controlSequence;
     private readonly PetGestureState gesture = new();
@@ -170,6 +171,10 @@ public sealed class PetWindowController : IDisposable
     private void CaptureFrame()
     {
         var current = Volatile.Read(ref target);
+        // Check the actual topmost group on this background worker. A renderer
+        // reload can change it, independently of our cached interaction style.
+        if (current is not null && (GetWindowLongPtr(current.Window, GwlExStyle) & 8) == 0)
+            Volatile.Write(ref topMostRepairRequested, 1);
         if (IsLocked || current is null)
         {
             Volatile.Write(ref alphaFrame, null);
@@ -276,6 +281,8 @@ public sealed class PetWindowController : IDisposable
     {
         EnsureActiveTarget();
         if (activeTarget is null) return;
+        if (!IsLocked && Volatile.Read(ref topMostRepairRequested) != 0 && lastControlRequest is { } previous)
+            SetPassThrough(previous.PassThrough);
         if (IsLocked)
         {
             gesture.Cancel();
@@ -309,13 +316,16 @@ public sealed class PetWindowController : IDisposable
     private bool SetPassThrough(bool passThrough, bool wait = false, Point? point = null,
         PetAlphaFrame? requiredFrame = null, bool redirectFocus = false)
     {
+        var lockedState = IsLocked;
+        passThrough |= lockedState;
         var previous = lastControlRequest;
         if (requiredFrame is null && !redirectFocus && previous is not null && !previous.IsCancelled
-            && ReferenceEquals(previous.Target, activeTarget) && previous.PassThrough == passThrough && previous.Locked == IsLocked
+            && ReferenceEquals(previous.Target, activeTarget) && previous.PassThrough == passThrough && previous.Locked == lockedState
             && (!passThrough || Volatile.Read(ref pendingReleaseRetry) == 0 || !previous.Completion.Task.IsCompleted)
+            && (Volatile.Read(ref topMostRepairRequested) == 0 || !previous.Completion.Task.IsCompleted)
             && (!previous.Completion.Task.IsCompleted || previous.Completion.Task.Result))
             return !wait || WaitForControl(previous);
-        var request = new ControlRequest(activeTarget, passThrough, IsLocked, point, requiredFrame,
+        var request = new ControlRequest(activeTarget, passThrough, lockedState, point, requiredFrame,
             redirectFocus, Interlocked.Increment(ref controlSequence));
         lastControlRequest = request;
         if (!runWorkers) ExecuteControl(request);
@@ -348,7 +358,7 @@ public sealed class PetWindowController : IDisposable
                 RestoreControlledTarget();
                 controlledTarget = request.Target;
                 appliedStyle = controlledTarget?.OriginalStyle;
-                controlledLocked = false;
+                controlledTopMost = false;
             }
             if (controlledTarget is null) { success = true; return; }
             if (request.RequiredFrame is not null && request.Point is { } point
@@ -384,15 +394,32 @@ public sealed class PetWindowController : IDisposable
     private void ApplyNativeStyle(bool passThrough, bool lockedState)
     {
         if (controlledTarget is null) return;
-        if (lockedState) ReleaseInjectedButtons();
+        if (lockedState)
+        {
+            passThrough = true;
+            ReleaseInjectedButtons();
+        }
         else if (passThrough)
         {
             if (injectedLeft is { ReleaseRequested: true } left) ReleaseReplay(left);
             if (injectedRight is { ReleaseRequested: true } right) ReleaseReplay(right);
         }
-        var desired = passThrough ? controlledTarget.OriginalStyle | WsExLayered | WsExTransparent | WsExNoActivate : controlledTarget.OriginalStyle;
-        if (lockedState) desired |= 8;
-        if (appliedStyle != desired)
+        // Staying above ordinary applications is independent of whether the
+        // pet accepts drag/resize input. Only disposal restores its old Z group.
+        var lostTopMost = (GetWindowLongPtr(controlledTarget.Window, GwlExStyle) & 8) == 0;
+        if (!controlledTopMost || lostTopMost)
+        {
+            // Establish the native topmost group once, without taking focus.
+            // Do not repeatedly raise it over other applications' topmost UI.
+            // Complete this on the window worker before writing the style: an
+            // asynchronous promotion can race that write and leave a normal
+            // window carrying only a stale WS_EX_TOPMOST bit.
+            if (!SetWindowPos(controlledTarget.Window, new IntPtr(-1), 0, 0, 0, 0, 0x13))
+                throw new InvalidOperationException("Cannot keep pet window on top.");
+            controlledTopMost = true;
+        }
+        var desired = (passThrough ? controlledTarget.OriginalStyle | WsExLayered | WsExTransparent | WsExNoActivate : controlledTarget.OriginalStyle) | 8;
+        if (appliedStyle != desired || lostTopMost)
         {
             Marshal.SetLastPInvokeError(0);
             var old = SetWindowLongPtr(controlledTarget.Window, GwlExStyle, desired);
@@ -400,12 +427,7 @@ public sealed class PetWindowController : IDisposable
             Interlocked.Increment(ref styleUpdateCount);
             appliedStyle = desired;
         }
-        if (controlledLocked != lockedState)
-        {
-            var topMost = lockedState || (controlledTarget.OriginalStyle & 8) != 0;
-            SetWindowPos(controlledTarget.Window, new IntPtr(topMost ? -1 : -2), 0, 0, 0, 0, 0x4013);
-            controlledLocked = lockedState;
-        }
+        Volatile.Write(ref topMostRepairRequested, 0);
     }
 
     private static bool IsFrameAligned(IntPtr hwnd, PetAlphaFrame frame)

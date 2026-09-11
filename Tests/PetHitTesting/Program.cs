@@ -37,8 +37,10 @@ internal static class Program
         GestureOrigins();
         InputThreadIsolation();
         HungRendererIsolation();
+        TopMostLifetime();
         if (args.Length == 2 && args[0] == "--native")
         {
+            NativeTopmostPeerComparison(int.Parse(args[1]));
             NativePet(int.Parse(args[1]));
             NativeWorkerPet(int.Parse(args[1]));
         }
@@ -204,6 +206,122 @@ internal static class Program
         bool IsPassingThrough() => (GetWindowLongPtr(fixture.Handle, -20) & 0x80020) == 0x80020;
     }
 
+    private static void TopMostLifetime()
+    {
+        using var fixture = new ExternalTestWindow();
+        var originalStyle = GetWindowLongPtr(fixture.Handle, -20);
+        Check((originalStyle & 8) == 0, "Topmost regression starts with an ordinary renderer window");
+        using var other = new Form { StartPosition = FormStartPosition.Manual, Bounds = new Rectangle(20, 20, 180, 150),
+            ShowInTaskbar = true, Text = "Ordinary foreground fixture" };
+        other.Show();
+        SetForegroundWindow(other.Handle);
+        PumpFor(60);
+        var expectedForeground = GetForegroundWindow();
+        Check((GetWindowLongPtr(other.Handle, -20) & 8) == 0, "Comparison window belongs to the ordinary Z-order group");
+        var pixels = new byte[fixture.ClientBounds.Width * fixture.ClientBounds.Height * 4];
+        for (var i = 3; i < pixels.Length; i += 4) pixels[i] = 255;
+        using var controller = new PetWindowController(() => fixture.Handle, captureOverride: hwnd =>
+            PetAlphaFrame.FromBgra(hwnd, fixture.ClientBounds, pixels));
+        controller.ApplyLockState();
+        Check(controller.WaitForInputThread(2000), "Topmost regression starts production workers");
+        PumpFor(120);
+        AssertStaysAbove("initial unlocked attachment");
+        controller.Lock();
+        PumpFor(100);
+        var controlWorker = (NativeInputThread)typeof(PetWindowController).GetField("windowThread", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(controller)!;
+        var repairedWhileLocked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        controlWorker.Post(() =>
+        {
+            typeof(PetWindowController).GetMethod("ApplyNativeStyle", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(controller, [false, true]);
+            repairedWhileLocked.SetResult(true);
+        });
+        Check(repairedWhileLocked.Task.Wait(2000), "Locked topmost repair runs on the independent window worker");
+        Check((GetWindowLongPtr(fixture.Handle, -20) & 0x8080020) == 0x8080020, "Repair cannot make a locked renderer interactive even with a stale gesture request");
+        AssertStaysAbove("lock");
+        controller.Unlock();
+        PumpFor(100);
+        AssertStaysAbove("unlock");
+        var input = (NativeInputThread)typeof(PetWindowController).GetField("inputThread", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(controller)!;
+        var point = new Point(fixture.ClientBounds.Left + 10, fixture.ClientBounds.Top + 10);
+        foreach (var down in new[] { 0x201, 0x204 })
+        {
+            var prepared = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            input.Post(() => prepared.SetResult(controller.UpdatePointerState(fixture.Handle, point, down)));
+            Check(prepared.Task.Wait(2000) && prepared.Task.Result, "Unlocked body drag/resize preparation succeeds");
+            AssertStaysAbove(down == 0x201 ? "left-drag preparation" : "right-resize preparation");
+            input.Post(() => controller.UpdatePointerState(fixture.Handle, point, down + 1));
+            PumpFor(100);
+        }
+        using (var cover = new Form { StartPosition = FormStartPosition.Manual, Bounds = new Rectangle(30, 30, 80, 80),
+            FormBorderStyle = FormBorderStyle.None, TopMost = true, ShowInTaskbar = true })
+        {
+            cover.Show();
+            SetWindowPos(cover.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x13);
+            expectedForeground = GetForegroundWindow();
+            PumpFor(300);
+            Check(IsAbove(cover.Handle, fixture.Handle), "Another topmost window keeps its place above the idle pet");
+            controller.Lock();
+            PumpFor(100);
+            controller.Unlock();
+            PumpFor(100);
+            Check(IsAbove(cover.Handle, fixture.Handle), "Lock transitions do not repeatedly raise pet over other topmost windows");
+            Check(GetForegroundWindow() == expectedForeground, "Topmost maintenance does not steal foreground focus");
+            cover.Close();
+        }
+        PumpFor(30);
+        expectedForeground = GetForegroundWindow();
+        SetWindowPos(fixture.Handle, new IntPtr(-2), 0, 0, 0, 0, 0x13);
+        PumpFor(250);
+        AssertStaysAbove("recovery after native topmost removal");
+        controller.Dispose();
+        PumpFor(150);
+        Check((GetWindowLongPtr(fixture.Handle, -20) & 8) == 0, "Disposal restores the renderer's original non-topmost group");
+        Check(GetForegroundWindow() == expectedForeground, "Restoring the original group does not take focus");
+        other.Close();
+        Console.WriteLine("Topmost lifecycle: ordinary renderer stays above ordinary foreground windows through unlock, lock and gesture preparation; other topmost windows stay above it; disposal restores the original group.");
+
+        void AssertStaysAbove(string phase)
+        {
+            SetWindowPos(other.Handle, IntPtr.Zero, 0, 0, 0, 0, 0x13);
+            PumpFor(30);
+            Check((GetWindowLongPtr(fixture.Handle, -20) & 8) != 0, $"{phase}: topmost style remains enabled");
+            Check(IsAbove(fixture.Handle, other.Handle), $"{phase}: native Z order keeps pet above ordinary foreground window");
+            Check(GetForegroundWindow() == expectedForeground, $"{phase}: foreground focus remains unchanged");
+        }
+    }
+
+    private static bool IsAbove(IntPtr upper, IntPtr lower)
+    {
+        for (var window = GetWindow(lower, 3); window != IntPtr.Zero; window = GetWindow(window, 3))
+            if (window == upper) return true;
+        return false;
+    }
+
+    private static void NativeTopmostPeerComparison(int processId)
+    {
+        using var pet = Process.GetProcessById(processId);
+        var hwnd = pet.MainWindowHandle;
+        using var sampler = new PetPixelSampler();
+        var frame = sampler.Capture(hwnd)!;
+        var point = FindBodyPoint(frame);
+        var baseline = PetAboveCoverAfterSettling();
+        using var controller = new PetWindowController(() => hwnd, runWorkers: false);
+        controller.ApplyLockState();
+        var managed = PetAboveCoverAfterSettling();
+        Check(baseline == managed, "Overlay does not add repeated raising over native renderer's existing topmost-peer behavior");
+        Console.WriteLine($"Native topmost-peer comparison after 300 ms: pet above peer without controller={baseline}; with controller={managed}.");
+
+        bool PetAboveCoverAfterSettling()
+        {
+            using var cover = new Form { StartPosition = FormStartPosition.Manual, Bounds = new Rectangle(point.X - 8, point.Y - 8, 32, 32),
+                FormBorderStyle = FormBorderStyle.None, TopMost = true, ShowInTaskbar = false };
+            cover.Show();
+            SetWindowPos(cover.Handle, new IntPtr(-1), 0, 0, 0, 0, 0x13);
+            PumpFor(300);
+            return IsAbove(hwnd, cover.Handle);
+        }
+    }
+
     private static void NativePet(int processId)
     {
         using var pet = Process.GetProcessById(processId);
@@ -306,6 +424,7 @@ internal static class Program
         var hwnd = pet.MainWindowHandle;
         GetCursorPos(out var savedPointer);
         GetWindowRect(hwnd, out var original);
+        var originalStyle = GetWindowLongPtr(hwnd, -20);
         var backdropStart = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true };
         foreach (var argument in new[] { "--gesture-backdrop", (original.Left - 150).ToString(), (original.Top - 50).ToString(),
             (original.Right - original.Left + 300).ToString(), (original.Bottom - original.Top + 150).ToString() }) backdropStart.ArgumentList.Add(argument);
@@ -313,13 +432,18 @@ internal static class Program
         var backdropReady = backdrop.StandardOutput.ReadLineAsync();
         Check(backdropReady.Wait(3000) && long.TryParse(backdropReady.Result, out _), "Independent backdrop process starts");
         var background = new IntPtr(long.Parse(backdropReady.Result!));
+        var managed = false;
         try
         {
             TestGesture("baseline right enlarge", 60, 0, false, true);
+            SetWindowPos(hwnd, new IntPtr(-2), 0, 0, 0, 0, 0x13);
+            PumpFor(80);
+            Check((GetWindowLongPtr(hwnd, -20) & 8) == 0, "Real renderer starts managed lifecycle in the ordinary non-topmost group");
             using var controller = new PetWindowController(() => hwnd);
             controller.ApplyLockState();
             Check(controller.WaitForInputThread(2000), "Real gesture hook starts");
             Check(SpinWait.SpinUntil(() => controller.CachedFrame is not null, 2000), "Real gesture alpha cache ready");
+            managed = true;
             TestGesture("controller right enlarge", 60, 0, false, true);
             TestGesture("controller right shrink", -60, 0, false, true);
             TestGesture("controller left drag", 48, 24, true, true);
@@ -392,6 +516,7 @@ internal static class Program
         {
             SendMouse(0, 0, 0x4 | 0x10); // Always release left/right buttons, including failed assertions.
             SetWindowPos(hwnd, IntPtr.Zero, original.Left, original.Top, original.Right - original.Left, original.Bottom - original.Top, 0x14);
+            SetWindowPos(hwnd, new IntPtr((originalStyle & 8) != 0 ? -1 : -2), 0, 0, 0, 0, 0x13);
             SetCursorPos(savedPointer.X, savedPointer.Y);
             PostMessage(background, 0x10, 0, 0);
             if (!backdrop.WaitForExit(2000)) backdrop.Kill();
@@ -455,6 +580,12 @@ internal static class Program
             SendMouseBatch(0x2, 0x4);
             PumpFor(80);
             Check(GetForegroundWindow() == background, "A separate application owns focus before the pet press");
+            if (managed)
+            {
+                Check((GetWindowLongPtr(hwnd, -20) & 8) != 0, "Pet remains topmost after switching to the independent application");
+                Check(IsAbove(hwnd, background), "Pet stays above the ordinary foreground application in actual Windows Z order");
+                Check(GetForegroundWindow() == background, "Pet topmost maintenance leaves focus with the independent application");
+            }
         }
     }
 
@@ -535,6 +666,36 @@ internal static class Program
         bool IsPassingThrough() => (GetWindowLongPtr(hwnd, -20) & 0x80020) == 0x80020;
     }
 
+    private sealed class ExternalTestWindow : IDisposable
+    {
+        private readonly Process process;
+        internal IntPtr Handle { get; }
+        internal Rectangle ClientBounds { get; }
+        internal ExternalTestWindow()
+        {
+            var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true };
+            foreach (var argument in new[] { "--gesture-backdrop", "40", "40", "100", "100" }) start.ArgumentList.Add(argument);
+            process = Process.Start(start)!;
+            var ready = process.StandardOutput.ReadLineAsync();
+            if (!ready.Wait(3000) || !long.TryParse(ready.Result, out var handle))
+            {
+                process.Kill();
+                throw new InvalidOperationException("Independent topmost fixture did not start.");
+            }
+            Handle = new IntPtr(handle);
+            GetClientRect(Handle, out var client);
+            var origin = Point.Empty;
+            ClientToScreen(Handle, ref origin);
+            ClientBounds = new Rectangle(origin.X, origin.Y, client.Right, client.Bottom);
+        }
+        public void Dispose()
+        {
+            PostMessage(Handle, 0x10, 0, 0);
+            if (!process.WaitForExit(2000)) process.Kill();
+            process.Dispose();
+        }
+    }
+
     private sealed class TestWindow : IDisposable
     {
         private readonly NativeInputThread owner;
@@ -587,6 +748,7 @@ internal static class Program
     private sealed class GestureBackdrop : Form
     {
         private int rightDowns;
+        protected override bool ShowWithoutActivation => true;
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
@@ -610,8 +772,12 @@ internal static class Program
     [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public MouseInput Mouse; }
     [StructLayout(LayoutKind.Sequential)] private struct MouseInput { public int X, Y; public uint Data, Flags, Time; public nuint Extra; }
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+    [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out Rect rect);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+    [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, Input[] inputs, int size);
