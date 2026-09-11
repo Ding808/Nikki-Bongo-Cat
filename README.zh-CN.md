@@ -32,9 +32,9 @@
 
 ## 界面预览
 
-![粉色暖暖桌宠](docs/images/pet-preview.png)
+![粉色暖暖桌宠](docs/images/00c3b14e-e289-43dd-910f-4c38961a78c6.png)
 
-实际 Live2D 桌宠的透明背景渲染图。
+Live2D 桌宠实际使用预览。
 
 ![中文统计面板](docs/images/dashboard-zh.png)
 
