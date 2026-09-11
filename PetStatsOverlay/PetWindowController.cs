@@ -11,6 +11,12 @@ public sealed class PetWindowController : IDisposable
     private const uint RefreshMessage = 0x8000 + 171;
     private const int CaptureIntervalMilliseconds = 33;
     private const int ButtonHandshakeMilliseconds = 50;
+    private static readonly nuint ReplayTagMask = unchecked((nuint)0xFFFFFFFF00000000UL);
+    private static readonly nuint ReplayProtocolMask = unchecked((nuint)0xFFFF000000000000UL);
+    private static readonly nuint ReplayProtocol = unchecked((nuint)0x4E4B000000000000UL);
+    private readonly nuint replayTagPrefix = ReplayProtocol | unchecked((nuint)((ulong)Random.Shared.Next(1, 65536) << 32));
+    private readonly ConcurrentDictionary<nuint, MouseReplay> replayInputs = new();
+    private int replayNumber;
     private readonly PetPixelSampler pixelSampler = new();
     private readonly MouseHookProc mouseHookCallback;
     private readonly Func<IntPtr>? windowFinder;
@@ -35,6 +41,9 @@ public sealed class PetWindowController : IDisposable
     private long lastButtonEvent, releaseAfter;
     private long captureCount;
     private long styleUpdateCount;
+    private MouseReplay? leftReplay, rightReplay;
+    private MouseReplay? injectedLeft, injectedRight;
+    private int pendingReleaseRetry;
 
     public PetWindowController() : this(null, true, null) { }
 
@@ -116,7 +125,11 @@ public sealed class PetWindowController : IDisposable
         }
         if (inputThread is null)
         {
-            windowThread = new NativeInputThread("Nikki window control", () => { }, RestoreControlledTarget);
+            windowThread = new NativeInputThread("Nikki window control", () => { }, () =>
+            {
+                ReleaseInjectedButtons();
+                RestoreControlledTarget();
+            });
             windowThread.Start();
             inputThread = new NativeInputThread("Nikki mouse input", () =>
             {
@@ -172,13 +185,48 @@ public sealed class PetWindowController : IDisposable
         // The overwhelmingly common path is intentionally just the next hook.
         // In particular, 1,000/8,000-Hz mouse movement never samples a pixel,
         // enumerates windows, changes a style, or waits for the UI/capture worker.
-        if (code < 0 || !IsButtonMessage(unchecked((int)message)) || Volatile.Read(ref disposed) != 0)
+        if (code < 0 || !IsButtonMessage(unchecked((int)message)))
             return CallNextHookEx(mouseHook, code, message, data);
         try
         {
             var input = Marshal.PtrToStructure<MouseHookData>(data);
+            if ((input.ExtraInfo & ReplayProtocolMask) == ReplayProtocol)
+            {
+                // Another running overlay may have prepared this press. Never
+                // recursively replay its events; only validate our own tokens.
+                if ((input.ExtraInfo & ReplayTagMask) != replayTagPrefix) return CallNextHookEx(mouseHook, code, message, data);
+                if (message == 0x201 || message == 0x204)
+                {
+                    if (!replayInputs.TryGetValue(input.ExtraInfo, out var injected)
+                        || IsControlExpired(injected.Request) || !ReferenceEquals(injected.Target, Volatile.Read(ref target)))
+                        return new IntPtr(1);
+                }
+                else replayInputs.TryRemove(input.ExtraInfo, out _);
+                return CallNextHookEx(mouseHook, code, message, data);
+            }
+            if (Volatile.Read(ref disposed) != 0) return CallNextHookEx(mouseHook, code, message, data);
             var current = Volatile.Read(ref target);
-            if (current is not null) UpdatePointerState(current.Window, input.Point, unchecked((int)message));
+            var mouseMessage = unchecked((int)message);
+            if (mouseMessage is 0x202 or 0x205)
+            {
+                var replay = mouseMessage == 0x202 ? leftReplay : rightReplay;
+                if (mouseMessage == 0x202) leftReplay = null; else rightReplay = null;
+                if (current is not null) UpdatePointerState(current.Window, input.Point, mouseMessage);
+                if (replay is not null && windowThread?.Post(() => ReleaseReplay(replay)) == true) return new IntPtr(1);
+            }
+            else if (current is not null && UpdatePointerState(current.Window, input.Point, mouseMessage))
+            {
+                // Windows chose the original target before this low-level
+                // hook, while the idle pet was transparent. Replay the matched
+                // press after preparing its style so Windows hit-tests afresh.
+                // Its physical release uses the same queue, preserving order
+                // even when a very fast click finishes during the handshake.
+                var replay = new MouseReplay(current, lastControlRequest!, mouseMessage == 0x201,
+                    replayTagPrefix | unchecked((uint)Interlocked.Increment(ref replayNumber)));
+                if (mouseMessage == 0x201) leftReplay = replay; else rightReplay = replay;
+                if (windowThread?.Post(() => ReplayBodyPress(replay)) == true) return new IntPtr(1);
+                if (mouseMessage == 0x201) leftReplay = null; else rightReplay = null;
+            }
         }
         catch
         {
@@ -190,11 +238,11 @@ public sealed class PetWindowController : IDisposable
 
     internal static bool IsButtonMessage(int message) => message is 0x201 or 0x202 or 0x204 or 0x205;
 
-    internal void UpdatePointerState(IntPtr hwnd, Point point, int message)
+    internal bool UpdatePointerState(IntPtr hwnd, Point point, int message)
     {
-        if (!IsButtonMessage(message)) return;
+        if (!IsButtonMessage(message)) return false;
         EnsureActiveTarget();
-        if (activeTarget?.Window != hwnd) return;
+        if (activeTarget?.Window != hwnd) return false;
         var down = message is 0x201 or 0x204;
         var frame = Volatile.Read(ref alphaFrame);
         var onBody = down && !IsLocked && frame?.Window == hwnd
@@ -213,6 +261,7 @@ public sealed class PetWindowController : IDisposable
                 // worker result is invalidated, then restored to pass-through.
                 SetPassThrough(true);
             }
+            else return interactive;
         }
         else if (!gesture.HasHeldButtons)
         {
@@ -220,6 +269,7 @@ public sealed class PetWindowController : IDisposable
             // A subsequent button-down always rechecks the alpha before routing.
             releaseAfter = lastButtonEvent + Stopwatch.Frequency / 20;
         }
+        return false;
     }
 
     private void ApplyPendingState()
@@ -262,6 +312,7 @@ public sealed class PetWindowController : IDisposable
         var previous = lastControlRequest;
         if (requiredFrame is null && !redirectFocus && previous is not null && !previous.IsCancelled
             && ReferenceEquals(previous.Target, activeTarget) && previous.PassThrough == passThrough && previous.Locked == IsLocked
+            && (!passThrough || Volatile.Read(ref pendingReleaseRetry) == 0 || !previous.Completion.Task.IsCompleted)
             && (!previous.Completion.Task.IsCompleted || previous.Completion.Task.Result))
             return !wait || WaitForControl(previous);
         var request = new ControlRequest(activeTarget, passThrough, IsLocked, point, requiredFrame,
@@ -333,6 +384,12 @@ public sealed class PetWindowController : IDisposable
     private void ApplyNativeStyle(bool passThrough, bool lockedState)
     {
         if (controlledTarget is null) return;
+        if (lockedState) ReleaseInjectedButtons();
+        else if (passThrough)
+        {
+            if (injectedLeft is { ReleaseRequested: true } left) ReleaseReplay(left);
+            if (injectedRight is { ReleaseRequested: true } right) ReleaseReplay(right);
+        }
         var desired = passThrough ? controlledTarget.OriginalStyle | WsExLayered | WsExTransparent | WsExNoActivate : controlledTarget.OriginalStyle;
         if (lockedState) desired |= 8;
         if (appliedStyle != desired)
@@ -378,6 +435,7 @@ public sealed class PetWindowController : IDisposable
 
     private void RestoreControlledTarget()
     {
+        ReleaseInjectedButtons();
         var previous = controlledTarget;
         if (previous is not null && IsWindow(previous.Window)
             && GetWindowThreadProcessId(previous.Window, out var processId) != 0 && processId == previous.ProcessId)
@@ -386,6 +444,51 @@ public sealed class PetWindowController : IDisposable
             SetWindowPos(previous.Window, new IntPtr((previous.OriginalStyle & 8) != 0 ? -1 : -2), 0, 0, 0, 0, 0x4013);
         }
         controlledTarget = null;
+    }
+
+    private void ReplayBodyPress(MouseReplay replay)
+    {
+        // Do not move the user's pointer or send a delayed press to a different
+        // application if the target, lock state, or pointer changed meanwhile.
+        if (IsControlExpired(replay.Request) || !ReferenceEquals(controlledTarget, replay.Target)
+            || !GetCursorPos(out var point) || GetAncestor(WindowFromPoint(point), 2) != replay.Target.Window)
+            return;
+        var frame = Volatile.Read(ref alphaFrame);
+        if (frame?.Window != replay.Target.Window || Stopwatch.GetElapsedTime(frame.CapturedAt).TotalMilliseconds > 500
+            || !IsFrameAligned(replay.Target.Window, frame) || !frame.IsVisiblePixel(point)) return;
+        replayInputs[replay.Tag] = replay;
+        if (SendReplayButton(replay.Left ? 0x2u : 0x8u, replay.Tag))
+        {
+            replay.Injected = true;
+            if (replay.Left) injectedLeft = replay; else injectedRight = replay;
+        }
+        else replayInputs.TryRemove(replay.Tag, out _);
+    }
+
+    private void ReleaseReplay(MouseReplay replay)
+    {
+        replay.ReleaseRequested = true;
+        if (!replay.Injected) return;
+        if (!SendReplayButton(replay.Left ? 0x4u : 0x10u, replay.Tag))
+        {
+            Volatile.Write(ref pendingReleaseRetry, 1);
+            return;
+        }
+        replay.Injected = false;
+        if (replay.Left) injectedLeft = null; else injectedRight = null;
+        Volatile.Write(ref pendingReleaseRetry, injectedLeft is { ReleaseRequested: true } || injectedRight is { ReleaseRequested: true } ? 1 : 0);
+    }
+
+    private void ReleaseInjectedButtons()
+    {
+        if (injectedLeft is { } left) ReleaseReplay(left);
+        if (injectedRight is { } right) ReleaseReplay(right);
+    }
+
+    private static bool SendReplayButton(uint flags, nuint tag)
+    {
+        var inputs = new[] { new NativeInput { Mouse = new NativeMouseInput { Flags = flags, ExtraInfo = tag } } };
+        return SendInput(1, inputs, Marshal.SizeOf<NativeInput>()) == 1;
     }
 
     private void StopInput()
@@ -451,6 +554,15 @@ public sealed class PetWindowController : IDisposable
     }
 
     private sealed record PetTarget(IntPtr Window, uint ProcessId, nint OriginalStyle);
+    private sealed class MouseReplay(PetTarget target, ControlRequest request, bool left, nuint tag)
+    {
+        internal PetTarget Target { get; } = target;
+        internal ControlRequest Request { get; } = request;
+        internal bool Left { get; } = left;
+        internal nuint Tag { get; } = tag;
+        internal bool Injected { get; set; }
+        internal bool ReleaseRequested { get; set; }
+    }
     private sealed class ControlRequest(PetTarget? target, bool passThrough, bool lockedState, Point? point,
         PetAlphaFrame? requiredFrame, bool redirectFocus, long sequence)
     {
@@ -469,12 +581,15 @@ public sealed class PetWindowController : IDisposable
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr data);
     private delegate IntPtr MouseHookProc(int code, IntPtr message, IntPtr data);
     [StructLayout(LayoutKind.Sequential)] private struct MouseHookData { public Point Point; public uint MouseData, Flags, Time; public nuint ExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)] private struct NativeInput { public uint Type; public NativeMouseInput Mouse; }
+    [StructLayout(LayoutKind.Sequential)] private struct NativeMouseInput { public int X, Y; public uint MouseData, Flags, Time; public nuint ExtraInfo; }
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetWindowsHookEx(int hook, MouseHookProc callback, IntPtr module, uint threadId);
     [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hook);
     [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr message, IntPtr data);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? name);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, NativeInput[] inputs, int size);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
     [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr hwnd, uint command);

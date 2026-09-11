@@ -11,6 +11,18 @@ internal static class Program
     private static void Main(string[] args)
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        if (args.Length == 5 && args[0] == "--gesture-backdrop")
+        {
+            Application.Run(new GestureBackdrop { Bounds = new Rectangle(int.Parse(args[1]), int.Parse(args[2]), int.Parse(args[3]), int.Parse(args[4])),
+                StartPosition = FormStartPosition.Manual, ShowInTaskbar = false, Text = "Isolated native gesture backdrop" });
+            return;
+        }
+        if (args.Length == 2 && args[0] == "--native-gestures")
+        {
+            NativeGestures(int.Parse(args[1]));
+            Console.WriteLine($"PASS: {assertions} real native gesture assertions.");
+            return;
+        }
         Check(!PetPixelSampler.IsHitAlpha(0), "Transparent pixels pass through");
         Check(!PetPixelSampler.IsHitAlpha(7), "Barely visible fringe passes through");
         Check(PetPixelSampler.IsHitAlpha(8), "Visible alpha threshold included");
@@ -286,6 +298,195 @@ internal static class Program
         bool IsPassingThrough() => (GetWindowLongPtr(hwnd, -20) & 0x80020) == 0x80020;
     }
 
+    private static void NativeGestures(int processId)
+    {
+        using var pet = Process.GetProcessById(processId);
+        Check(pet.ProcessName == "BongoCatMver" && pet.MainModule!.FileName.Contains("pet-hit-probe", StringComparison.OrdinalIgnoreCase),
+            "Real-input regression targets only a separately launched pet-hit-probe renderer");
+        var hwnd = pet.MainWindowHandle;
+        GetCursorPos(out var savedPointer);
+        GetWindowRect(hwnd, out var original);
+        var backdropStart = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true };
+        foreach (var argument in new[] { "--gesture-backdrop", (original.Left - 150).ToString(), (original.Top - 50).ToString(),
+            (original.Right - original.Left + 300).ToString(), (original.Bottom - original.Top + 150).ToString() }) backdropStart.ArgumentList.Add(argument);
+        using var backdrop = Process.Start(backdropStart)!;
+        var backdropReady = backdrop.StandardOutput.ReadLineAsync();
+        Check(backdropReady.Wait(3000) && long.TryParse(backdropReady.Result, out _), "Independent backdrop process starts");
+        var background = new IntPtr(long.Parse(backdropReady.Result!));
+        try
+        {
+            TestGesture("baseline right enlarge", 60, 0, false, true);
+            using var controller = new PetWindowController(() => hwnd);
+            controller.ApplyLockState();
+            Check(controller.WaitForInputThread(2000), "Real gesture hook starts");
+            Check(SpinWait.SpinUntil(() => controller.CachedFrame is not null, 2000), "Real gesture alpha cache ready");
+            TestGesture("controller right enlarge", 60, 0, false, true);
+            TestGesture("controller right shrink", -60, 0, false, true);
+            TestGesture("controller left drag", 48, 24, true, true);
+            TestGesture("transparent-origin right drag", 60, 0, false, false);
+            controller.Lock();
+            PumpFor(100);
+            TestGesture("locked body right drag", 60, 0, false, true, locked: true);
+            controller.Unlock();
+            PumpFor(100);
+            TestGesture("unlocked right drag", 60, 0, false, true);
+            TestGesture("right drag beyond left edge", -350, 0, false, true);
+            ResetWindow();
+            FocusBackdrop();
+            using (var lockedSampler = new PetPixelSampler())
+            {
+                var lockedPoint = FindBodyPoint(lockedSampler.Capture(hwnd)!);
+                SetCursorPos(lockedPoint.X, lockedPoint.Y);
+                SendMouse(0, 0, 0x8);
+                PumpFor(130);
+                SetCursorPos(lockedPoint.X + 30, lockedPoint.Y);
+                PumpFor(100);
+                controller.Lock();
+                PumpFor(150);
+                GetWindowRect(hwnd, out var lockedSize);
+                SetCursorPos(lockedPoint.X + 110, lockedPoint.Y);
+                PumpFor(150);
+                GetWindowRect(hwnd, out var afterLockedMotion);
+                Check(EqualRect(lockedSize, afterLockedMotion), "Lock during a held resize releases native gesture before further movement");
+                SendMouse(0, 0, 0x10);
+                PumpFor(100);
+                Check((GetAsyncKeyState(2) & 0x8000) == 0, "Lock cleanup and later physical release do not leave right button held");
+                controller.Unlock();
+                PumpFor(100);
+            }
+            TestGesture("unlock after held-resize cancellation", 60, 0, false, true);
+            ResetWindow();
+            FocusBackdrop();
+            using var sampler = new PetPixelSampler();
+            var body = FindBodyPoint(sampler.Capture(hwnd)!);
+            SetCursorPos(body.X, body.Y);
+            PumpFor(50);
+            for (var i = 0; i < 10; i++)
+            {
+                SendMouseBatch(0x8, 0x10);
+                PumpFor(90);
+            }
+            Check((GetAsyncKeyState(2) & 0x8000) == 0, "Immediate down/up batches never leave right button held");
+            GetWindowRect(hwnd, out var released);
+            SetCursorPos(body.X + 80, body.Y);
+            PumpFor(180);
+            GetWindowRect(hwnd, out var movedAfterRelease);
+            Check(EqualRect(released, movedAfterRelease), "Native resizing stops after rapid click releases");
+            Console.WriteLine("10 immediate right-button down/up batches released cleanly.");
+            ResetWindow();
+            FocusBackdrop();
+            var finalFrame = sampler.Capture(hwnd)!;
+            body = FindBodyPoint(finalFrame);
+            SetCursorPos(body.X, body.Y);
+            PumpFor(50);
+            SendMouse(0, 0, 0x8);
+            PumpFor(20);
+            SendMouse(0, 0, 0x10);
+            var blankDowns = SendMessage(background, 0x8310, 0, 0).ToInt32();
+            SetCursorPos(finalFrame.Bounds.Left + 8, finalFrame.Bounds.Top + 8);
+            SendMouseBatch(0x8, 0x10);
+            PumpFor(150);
+            Check(SendMessage(background, 0x8310, 0, 0).ToInt32() > blankDowns, "Transparent click immediately after body release reaches the underlying application");
+        }
+        finally
+        {
+            SendMouse(0, 0, 0x4 | 0x10); // Always release left/right buttons, including failed assertions.
+            SetWindowPos(hwnd, IntPtr.Zero, original.Left, original.Top, original.Right - original.Left, original.Bottom - original.Top, 0x14);
+            SetCursorPos(savedPointer.X, savedPointer.Y);
+            PostMessage(background, 0x10, 0, 0);
+            if (!backdrop.WaitForExit(2000)) backdrop.Kill();
+        }
+
+        void TestGesture(string name, int dx, int dy, bool left, bool onBody, bool locked = false)
+        {
+            ResetWindow();
+            FocusBackdrop();
+            using var sampler = new PetPixelSampler();
+            var frame = sampler.Capture(hwnd)!;
+            var point = onBody ? FindBodyPoint(frame) : new Point(frame.Bounds.Left + 8, frame.Bounds.Top + 8);
+            Check(onBody || !frame.IsVisiblePixel(point), "Transparent test origin has no visible pet pixel");
+            var backgroundDowns = SendMessage(background, 0x8310, 0, 0).ToInt32();
+            GetWindowRect(hwnd, out var before);
+            SetCursorPos(point.X, point.Y);
+            PumpFor(80);
+            SendMouse(0, 0, left ? 0x2u : 0x8u);
+            PumpFor(180);
+            var focused = GetForegroundWindow() == hwnd;
+            var style = GetWindowLongPtr(hwnd, -20);
+            for (var step = 1; step <= 6; step++)
+            {
+                SetCursorPos(point.X + step * dx / 6, point.Y + step * dy / 6);
+                PumpFor(50);
+            }
+            SendMouse(0, 0, left ? 0x4u : 0x10u);
+            PumpFor(120);
+            GetWindowRect(hwnd, out var after);
+            Console.WriteLine($"Real {name}: focused={focused}, exstyle=0x{style:X}, rect ({before.Left},{before.Top}) {before.Right - before.Left}x{before.Bottom - before.Top} -> ({after.Left},{after.Top}) {after.Right - after.Left}x{after.Bottom - after.Top}.");
+            if (!onBody || locked)
+            {
+                Check(EqualRect(before, after), $"{name}: pet does not move or resize");
+                Check(SendMessage(background, 0x8310, 0, 0).ToInt32() > backgroundDowns, $"{name}: underlying independent application receives right press");
+            }
+            else if (left)
+            {
+                Check(after.Left >= before.Left + 35 && after.Top >= before.Top + 15, "Held left button actually moves native renderer");
+                Check(after.Right - after.Left == before.Right - before.Left, "Left drag preserves size");
+            }
+            else
+            {
+                Check(focused, $"{name}: native renderer gains foreground from another process");
+                Check(SendMessage(background, 0x8310, 0, 0).ToInt32() == backgroundDowns, $"{name}: body press does not leak to the underlying application");
+                Check(dx > 0 ? after.Right - after.Left >= before.Right - before.Left + 40 : after.Right - after.Left <= before.Right - before.Left - 40,
+                    $"{name}: held right-button motion actually resizes native renderer");
+                SetCursorPos(point.X + dx + 40, point.Y + dy + 40);
+                PumpFor(120);
+                GetWindowRect(hwnd, out var afterMove);
+                Check(EqualRect(after, afterMove), $"{name}: release ends native resize");
+            }
+        }
+        void ResetWindow()
+        {
+            SetWindowPos(hwnd, IntPtr.Zero, original.Left, original.Top, original.Right - original.Left, original.Bottom - original.Top, 0x14);
+            PumpFor(150);
+        }
+        void FocusBackdrop()
+        {
+            SetCursorPos(original.Left - 80, original.Top + 40);
+            SendMouseBatch(0x2, 0x4);
+            PumpFor(80);
+            Check(GetForegroundWindow() == background, "A separate application owns focus before the pet press");
+        }
+    }
+
+    private static Point FindBodyPoint(PetAlphaFrame frame)
+    {
+        for (var y = frame.Bounds.Top + 16; y < frame.Bounds.Bottom - 16; y += 8)
+            for (var x = frame.Bounds.Left + 16; x < frame.Bounds.Right - 16; x += 8)
+            {
+                var point = new Point(x, y);
+                if (new[] { point, new Point(x - 12, y), new Point(x + 12, y), new Point(x, y - 12), new Point(x, y + 12) }.All(frame.IsVisiblePixel)) return point;
+            }
+        throw new InvalidOperationException("Native frame has no stable opaque body point.");
+    }
+
+    private static void PumpFor(int milliseconds)
+    {
+        var until = Stopwatch.GetTimestamp() + Stopwatch.Frequency * milliseconds / 1000;
+        while (Stopwatch.GetTimestamp() < until) { Application.DoEvents(); Thread.Sleep(5); }
+    }
+
+    private static void SendMouse(int x, int y, uint flags)
+    {
+        var inputs = new[] { new Input { Type = 0, Mouse = new MouseInput { X = x, Y = y, Flags = flags } } };
+        if (SendInput(1, inputs, Marshal.SizeOf<Input>()) != 1) throw new InvalidOperationException("Could not send isolated test mouse input.");
+    }
+    private static void SendMouseBatch(params uint[] flags)
+    {
+        var inputs = flags.Select(flag => new Input { Mouse = new MouseInput { Flags = flag } }).ToArray();
+        Check(SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>()) == inputs.Length, "Isolated input batch is inserted");
+    }
+    private static bool EqualRect(Rect a, Rect b) => a.Left == b.Left && a.Top == b.Top && a.Right == b.Right && a.Bottom == b.Bottom;
+
     private static void NativeWorkerPet(int processId)
     {
         using var pet = Process.GetProcessById(processId);
@@ -383,6 +584,22 @@ internal static class Program
             base.WndProc(ref message);
         }
     }
+    private sealed class GestureBackdrop : Form
+    {
+        private int rightDowns;
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            ShowWindow(Handle, 4);
+            Console.WriteLine(Handle.ToInt64());
+        }
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == 0x204) rightDowns++;
+            if (message.Msg == 0x8310) { message.Result = new IntPtr(rightDowns); return; }
+            base.WndProc(ref message);
+        }
+    }
 
     private static void Check(bool condition, string name)
     {
@@ -390,9 +607,18 @@ internal static class Program
         assertions++;
     }
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct Input { public uint Type; public MouseInput Mouse; }
+    [StructLayout(LayoutKind.Sequential)] private struct MouseInput { public int X, Y; public uint Data, Flags, Time; public nuint Extra; }
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint count, Input[] inputs, int size);
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd, uint message, nint wParam, nint lParam);
+    [DllImport("user32.dll")] private static extern bool PostMessage(IntPtr hwnd, uint message, nint wParam, nint lParam);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int command);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(IntPtr hwnd, int index);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
 }

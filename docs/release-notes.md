@@ -1,8 +1,10 @@
-# Nikki Bongo Cat v1.1.1
+# Nikki Bongo Cat v1.1.2
 
 ## English
 
-This update fixes pointer slowdown after launch and inflated daily Codex usage. Mouse movement no longer performs graphics readbacks. Usage parsing now distinguishes individual requests from session/turn totals and deduplicates the modern and legacy Codex records for the same call.
+This update restores right-button pet resizing. After idle click-through, a press could still go to the window behind the pet, preventing the native renderer from receiving the input and focus it needs. Presses on the visible, unlocked pet are now routed correctly. Transparent space remains available to other applications, and mouse movement still avoids graphics readbacks and window-control waits.
+
+**To resize:** unlock the pet, hold the right mouse button on its visible body, and drag right/down to enlarge or left/up to shrink. Release to finish. Left-button dragging moves the pet.
 
 Daily statistics use your computer's local date and the request's recorded time. Yesterday's figures are cleared at midnight, and the update label shows the last completed scan. Models recorded in background/helper calls still appear in their actual day's usage. Costs are API-equivalent USD estimates, not subscription invoices.
 
@@ -22,7 +24,9 @@ For upgrades, stop the old pet first. Extract this release, retain your settings
 
 ## 简体中文
 
-此版本修复启动后鼠标变慢、Codex 今日用量和估算花费异常放大的问题。鼠标移动不再同步读取图像；统计会区分单次请求与会话／回合累计量，并对同一调用的新旧日志去重。
+此版本恢复右键缩放功能。此前从空闲穿透状态恢复可点击后，按键仍可能被送到桌宠背后的窗口，导致原生程序没有获得输入和焦点，无法执行缩放。现在点击已解锁的可见本体时会正确交接按键；透明空白区域仍可操作其他应用，鼠标移动仍不等待图像采样或窗口控制。
+
+**缩放方法：**先解锁桌宠，在可见本体上按住右键，向右／向下拖动放大，向左／向上拖动缩小，松开结束。按住左键拖动可以移动桌宠。
 
 今日统计以电脑本地日期和请求记录的发生时间为准。跨午夜清除昨日数据，“更新于”显示最近一次完成扫描的时间。应用后台／辅助调用中实际记录的模型仍会计入对应日期。花费为按 API 单价折算的美元估算值，并非订阅账单。
 

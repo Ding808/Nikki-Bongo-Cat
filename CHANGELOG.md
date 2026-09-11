@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.1.2 — 2026-09-11
+
+### English
+
+- Restored right-button pet resizing after idle click-through: presses on the visible, unlocked pet are now routed to the native renderer so it receives the input and focus needed for dragging and resizing.
+- Kept transparent-area click-through, lock controls, and mouse-movement processing independent of graphics capture and window-control work.
+- Added native input regression coverage that holds the mouse button, moves the pointer, and checks the renderer's actual position and size.
+- Clarified resizing in both READMEs: drag right/down to enlarge, left/up to shrink, and release to finish.
+
+### 简体中文
+
+- 恢复右键缩放：空闲穿透状态下，点击已解锁的可见桌宠本体时，将按键正确交给原生渲染器，使其获得输入和焦点，正常执行左键拖动与右键缩放。
+- 保留透明空白区域穿透和锁定功能；鼠标移动仍不等待图像采样或窗口控制操作。
+- 增加真实鼠标按住、移动后的原生回归检查，核对桌宠实际位置和大小变化。
+- 中英文 README 补充缩放方向：向右／向下放大，向左／向上缩小，松开结束。
+
 ## v1.1.1 — 2026-09-11
 
 ### English

@@ -72,7 +72,7 @@ Keep the release's EXE files, DLLs, `img`, and `Resources` together. Extract to 
 | Change language | **EN → Language → English / Chinese** in the panel header. In Chinese, use **中 → 语言**. Also available in **Settings → Language**. |
 | Change dashboard size | **Settings → Panel size**: choose a preset or **Custom size…** (65–175%). |
 | Move the pet | Hold the left mouse button on a visible part of the unlocked pet and drag. |
-| Resize the pet | Hold the right mouse button on a visible part of the unlocked pet and drag. |
+| Resize the pet | Unlock the pet, then hold the right mouse button on its visible body. Drag right or down to enlarge it; drag left or up to shrink it. Release to finish. |
 | Lock / unlock | Numpad **−** / **+**, or the panel/tray lock controls. |
 | Keep the small button visible | **Settings → Always show button**. Otherwise it appears near the pointer/pet. |
 | Change the small button's metric | **Settings → Button display**. |
