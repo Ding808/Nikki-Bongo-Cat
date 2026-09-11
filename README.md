@@ -6,9 +6,29 @@ A Windows Live2D desktop companion that reacts to your keyboard and mouse, with 
 
 **[Download the ready-to-use Windows x64 package](https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest)** · [What's new](CHANGELOG.md)
 
-Download **`Nikki-Bongo-Cat-win-x64.zip`**, extract the entire folder, and double-click **`StartPetWithStats.cmd`**. The release includes its runtime; you do not need .NET, Visual Studio, or a build step. GitHub's **Source code** downloads are for developers and do not include the built companion application.
+The ready-to-use package includes everything needed to run the companion. **You do not need .NET, Visual Studio, or any programming experience.**
 
-A matching `Nikki-Bongo-Cat-win-x64.zip.sha256` file is attached to each release. To verify a download, compare its value with `Get-FileHash .\Nikki-Bongo-Cat-win-x64.zip -Algorithm SHA256` in PowerShell.
+## Quick start: use Nikki through Steam
+
+First, install the free [Bongo Cat](https://store.steampowered.com/app/3419430/Bongo_Cat/) in Steam. Close it if it is already running, then follow these steps.
+
+1. **Download the finished app.** Open the [latest release](https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest). Under **Assets**, click **`Nikki-Bongo-Cat-win-x64.zip`**. Do not use the green **Code** button or either **Source code** download: those are developer files, without the built companion EXE.
+
+2. **Extract it to a folder you plan to keep.** Right-click the downloaded ZIP and choose **Extract All…**. For example, use `D:\Apps\Nikki-Bongo-Cat` or a folder inside Documents. Open the extracted folder before continuing; do not run the files from inside the ZIP. Keep all its files and subfolders together.
+
+3. **Copy your Steam launch option automatically.** In the extracted folder, double-click **`CopySteamLaunchOption.cmd`**. When the app confirms that the launch option has been copied, click **OK**. You do not need to find an EXE or type a command yourself.
+
+4. **Paste it into Steam.** Open **Steam → Library**, right-click **Bongo Cat**, and choose **Properties → General**. Click the **Launch Options** box, press **Ctrl+A**, then **Ctrl+V** to replace its old contents with the copied text. Leave the quotation marks and `%command%` exactly as copied.
+
+5. **Start Bongo Cat from Steam.** Close the Properties window and click **Play** in your Steam library. Nikki and the statistics companion will start together. Use Steam's Play button for future launches, too.
+
+6. **Choose your language and panel size.** Move the pointer near Nikki and click the small **Today Together** button to open the panel. Use **EN → Language → Chinese** to switch to Chinese, or keep the default English. Use **Settings → Panel size** to choose a size or enter a custom percentage. Both choices are saved automatically.
+
+**Keep the extracted folder in the same place.** Steam remembers its full path. If you move the folder or switch to a new version in another folder, repeat steps **3–4** from that folder before launching again.
+
+### Prefer to run without Steam?
+
+Follow download and extraction steps **1–2**, then double-click **`StartPetWithStats.cmd`** in the extracted folder. You can use the pet and statistics without setting anything in Steam; this launch method does not use Steam's playtime mode.
 
 ## Preview
 
@@ -48,8 +68,8 @@ Keep the release's EXE files, DLLs, `img`, and `Resources` together. Extract to 
 
 | Action | How |
 | --- | --- |
-| Open the dashboard | Double-click the small companion button; or choose **Open statistics** in the tray menu. |
-| Change language | Click **EN** in the panel header (**中** when using Chinese), then choose a language. Also available in **Settings → Language**. |
+| Open the dashboard | Click the small companion button; or choose **Open statistics** in the tray menu. |
+| Change language | **EN → Language → English / Chinese** in the panel header. In Chinese, use **中 → 语言**. Also available in **Settings → Language**. |
 | Change dashboard size | **Settings → Panel size**: choose a preset or **Custom size…** (65–175%). |
 | Move the pet | Hold the left mouse button on a visible part of the unlocked pet and drag. |
 | Resize the pet | Hold the right mouse button on a visible part of the unlocked pet and drag. |
@@ -81,7 +101,9 @@ Known folders for Claude, Codex, Gemini CLI, Kimi CLI, Qwen Code, OpenCode JSON 
 
 Claude Desktop may evict its cache or omit conversations that have not been opened locally. Only available usage metadata can be included; encrypted or absent records are not estimated by counting prompt text. A new app version may also change its storage format. Records without a usable timestamp cannot be assigned to today and are excluded. Statistics update at startup and approximately once per minute, using the computer's local calendar day.
 
-**Requests** means observed usage records after deduplication, not necessarily the number of chat threads. **Model usage** is the model's share of observed tokens, not its share of money or subscription usage limits. Whole-number percentages may not sum to exactly 100%.
+When a Claude Desktop query clearly spans local midnight, its combined summary cannot be reliably divided between the two days. The app skips that summary and keeps individually timestamped message usage. Daily totals for that query may therefore be incomplete.
+
+**Requests** means observed usage records after deduplication, not necessarily the number of chat threads. **Model usage** is the model's share of observed tokens, not its share of money or subscription usage limits. Small nonzero shares display **<1%** instead of zero. Hover over a model or percentage to see its token count and a more precise share.
 
 ### Model families and prices
 
@@ -134,7 +156,7 @@ A `Pattern` can be an exact identifier or a wildcard such as `private-*`; `Provi
 
 AI logs and the Claude conversation cache are read locally. The companion does not upload prompts, conversation contents, or usage records; its automatic pricing request downloads public pricing data. Input statistics count key and mouse activity rather than saving typed text.
 
-To update, exit the companion and pet, extract the new release into a new folder, and copy across your `pet-stats-settings.json` and any custom models/configuration you wish to keep. Daily input history remains in your Windows profile. Release packages exclude the author's local settings, logs, caches, backups, build intermediates, and test output.
+To update, exit the companion and pet, download the finished ZIP from the [latest release](https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest), and extract it into a new folder. Copy across your `pet-stats-settings.json` and any custom models/configuration you wish to keep. **For Steam, double-click `CopySteamLaunchOption.cmd` in the new folder and paste the newly copied text into Steam's Launch Options again.** Daily input history remains in your Windows profile. Release packages exclude the author's local settings, logs, caches, backups, build intermediates, and test output.
 
 ## Live2D customization
 
@@ -144,10 +166,7 @@ A model folder must contain exactly one `*.model3.json` at its root, along with 
 
 ## Steam playtime mode
 
-1. Install Bongo Cat from Steam.
-2. Run **`CopySteamLaunchOption.cmd`** from the extracted Nikki Bongo Cat folder.
-3. In Steam, right-click **Bongo Cat → Properties → General → Launch Options**. Paste the copied command, replacing old launch options.
-4. Start Bongo Cat from Steam, or use **`StartPetWithStats.Steam.cmd`**.
+The [quick-start steps above](#quick-start-use-nikki-through-steam) are the complete setup instructions. Once configured, start Bongo Cat from Steam, or double-click **`StartPetWithStats.Steam.cmd`** to ask Steam to start it.
 
 The generated launch option uses your actual extraction path:
 
@@ -172,14 +191,21 @@ The older `--attach-steam-bongo-cat` argument remains an alias of `--steam-launc
 
 | Problem | Check |
 | --- | --- |
-| “Cannot find PetStatsOverlay.exe” | Download the ready-to-use ZIP from Releases and extract all files. The source archive does not contain that executable. |
+| “Cannot find PetStatsOverlay.exe” | Return to the [latest release](https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest), download **`Nikki-Bongo-Cat-win-x64.zip`** under **Assets**, and extract the whole ZIP. Do not look for an EXE in the source-code folder. |
+| I only see `.cs` files, or downloaded through **Code** | That is the source code. Download the finished ZIP named above from **Releases** instead; no build step is needed. |
+| The copy script cannot find the app | Open the fully extracted release folder and run `CopySteamLaunchOption.cmd` there. Do not run it inside the ZIP or copy the script out by itself. |
 | A model has tokens but no cost | Check the unpriced-record notice, the exact logged model identifier, catalogue connectivity, and custom `Prices` overrides. |
+| A model I did not choose today appears | The panel combines logs from local AI apps such as Codex and Claude, including any recorded background or helper calls. A Codex conversation used to troubleshoot this project can itself contribute usage. Records are assigned to today by their actual logged timestamps, not when you opened a conversation or when its file was modified. |
 | Claude Desktop usage is missing | Open the relevant conversation in Claude Desktop, let its local cache update, and wait for the next statistics refresh. The app cannot recover uncached usage. |
 | Another client's usage is missing | Confirm it writes usage counts and timestamps to compatible local logs, then add the relevant folder. Selecting a provider does not enable account-level billing access. |
 | Changes to settings are not applied | Close the companion, check that the settings file is valid JSON, save, and restart. |
 | Pet is locked or cannot be dragged | Press numpad **+** or choose **Unlock pet**, then drag a visible part of the pet. Use the supplied launcher so pet and companion run at the same privilege level. |
 | The dashboard is too large | Choose a smaller **Panel size**. Scroll the model list to see additional models. |
-| Steam launches the wrong program | Re-run `CopySteamLaunchOption.cmd` and replace the complete Steam launch option. |
+| Steam launches the original cat, the wrong program, or nothing | Close the running pet. In the folder you want to use, double-click `CopySteamLaunchOption.cmd`, then replace the **entire** Steam Launch Options box with the copied text. Launch again from Steam. Repeat this after moving the folder or updating to a different folder. |
+
+### Optional: verify your download
+
+Each release includes `Nikki-Bongo-Cat-win-x64.zip.sha256`. If you want to check that your ZIP downloaded correctly, compare that file's value with the output of `Get-FileHash .\Nikki-Bongo-Cat-win-x64.zip -Algorithm SHA256` in PowerShell. This check is optional; it is not a setup step.
 
 ## Build and test from source
 
@@ -191,7 +217,7 @@ dotnet build .\PetStatsOverlay\PetStatsOverlay.csproj -c Release
 .\BuildRelease.ps1
 ```
 
-The last command builds the self-contained application and creates **`artifacts\Nikki-Bongo-Cat-win-x64.zip`** with the renderer, assets, documentation, and launchers. GitHub Actions performs the same packaging for version tags such as `v1.1.0` and attaches the ZIP and its SHA-256 checksum to the release. The verification workflow also runs the automated checks on pushes and pull requests.
+The last command builds the self-contained application and creates **`artifacts\Nikki-Bongo-Cat-win-x64.zip`** with the renderer, assets, documentation, and launchers. GitHub Actions performs the same packaging for version tags such as `v1.1.1` and attaches the ZIP and its SHA-256 checksum to the release. The verification workflow also runs the automated checks on pushes and pull requests.
 
 Run all regression checks, including language/layout smoke checks:
 

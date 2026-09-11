@@ -70,27 +70,41 @@ public static class ClaudeDesktopUsageReader
     private static IEnumerable<JsonElement> ExtractUsage(Dictionary<string, object?> conversation)
     {
         if (GetObject(conversation, "tree") is not { } tree || GetArray(tree, "events") is not { } events) yield break;
-        // Result events contain session aggregates, overlapping assistant messages.
+        // Result events contain query aggregates, overlapping assistant messages.
         // Prefer per-message usage; retain result/modelUsage when a cache only has summaries.
         var messages = events.OfType<Dictionary<string, object?>>()
             .Select(item => (Event: item, Payload: GetObject(item, "payload")))
             .Where(item => item.Payload is not null).ToList();
         var sessionsWithMessages = messages.Where(item => GetObject(GetObject(item.Payload!, "message"), "usage") is not null)
-            .Select(item => GetString(item.Payload!, "session_id")).ToHashSet(StringComparer.Ordinal);
+            .Select(item => ResolveSession(item.Event, item.Payload!)).ToHashSet(StringComparer.Ordinal);
+        var queryDays = new Dictionary<string, HashSet<DateOnly>>(StringComparer.Ordinal);
         foreach (var item in messages)
         {
             var payload = item.Payload!;
             var message = GetObject(payload, "message");
             var result = GetString(payload, "type") == "result";
+            var session = ResolveSession(item.Event, payload);
+            if (!queryDays.TryGetValue(session, out var days)) queryDays[session] = days = [];
+            var timestamp = EventTimestamp(item.Event, payload);
+            if (ParseTimestamp(timestamp) is { } time) days.Add(DateOnly.FromDateTime(time.LocalDateTime));
+            var crossesMidnight = result && days.Count > 1;
+            // A session can span many days, but each result terminates one query.
+            // Never carry yesterday's completed query into today's next query.
+            if (result) queryDays.Remove(session);
+            // A query-wide total cannot be apportioned across days from its end
+            // timestamp. Keep individually timestamped assistant records instead.
+            if (crossesMidnight) continue;
             // Per-model summaries may include a second model whose assistant
             // messages were not retained. The aggregator removes covered models
             // by session/model, so preserve modelUsage rather than dropping the
             // whole result whenever any message exists in the session.
             if (GetObject(message, "usage") is null && (!result
-                || (sessionsWithMessages.Contains(GetString(payload, "session_id")) && GetObject(payload, "modelUsage") is null))) continue;
+                || (sessionsWithMessages.Contains(session) && GetObject(payload, "modelUsage") is null))) continue;
             var clean = CopyFields(payload, "type", "uuid", "request_id", "session_id", "timestamp", "created_at");
-            if (!clean.ContainsKey("timestamp") && !clean.ContainsKey("created_at") && item.Event.TryGetValue("serverCreatedAt", out var created))
-                clean["timestamp"] = created;
+            if (session.Length > 0) clean["session_id"] = session;
+            if (ParseTimestamp(payload.GetValueOrDefault("timestamp")) is null
+                && ParseTimestamp(payload.GetValueOrDefault("created_at")) is null && timestamp is not null)
+                clean["timestamp"] = timestamp;
             // Explicitly whitelist metadata; never pass message content, results, or tool input on.
             if (message is not null) clean["message"] = CopyFields(message, "id", "model", "role", "usage", "stop_reason");
             if (result)
@@ -106,6 +120,37 @@ public static class ClaudeDesktopUsageReader
     private static Dictionary<string, object?>? GetObject(Dictionary<string, object?>? obj, string key) => obj?.GetValueOrDefault(key) as Dictionary<string, object?>;
     private static List<object?>? GetArray(Dictionary<string, object?> obj, string key) => obj.GetValueOrDefault(key) as List<object?>;
     private static string GetString(Dictionary<string, object?> obj, string key) => obj.GetValueOrDefault(key) as string ?? "";
+
+    private static string ResolveSession(Dictionary<string, object?> entry, Dictionary<string, object?> payload)
+    {
+        foreach (var value in new[] { GetString(payload, "session_id"), GetString(payload, "sessionId"),
+            GetString(entry, "session_id"), GetString(entry, "sessionId") })
+            if (value.Length > 0) return value;
+        return "";
+    }
+
+    private static object? EventTimestamp(Dictionary<string, object?> entry, Dictionary<string, object?> payload)
+    {
+        foreach (var value in new[] { payload.GetValueOrDefault("timestamp"), payload.GetValueOrDefault("created_at"),
+            entry.GetValueOrDefault("timestamp"), entry.GetValueOrDefault("serverCreatedAt") })
+            if (ParseTimestamp(value) is not null) return value;
+        return null;
+    }
+
+    private static DateTimeOffset? ParseTimestamp(object? value)
+    {
+        if (value is string text && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)) return parsed;
+        if (value is not (string or long or ulong or int or double or decimal)) return null;
+        if (!decimal.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Float,
+            CultureInfo.InvariantCulture, out var numeric) || numeric < long.MinValue || numeric > long.MaxValue) return null;
+        try
+        {
+            return numeric > 100_000_000_000
+                ? DateTimeOffset.FromUnixTimeMilliseconds((long)numeric)
+                : DateTimeOffset.FromUnixTimeSeconds((long)numeric);
+        }
+        catch (ArgumentOutOfRangeException) { return null; }
+    }
 
     private static byte[]? Unwrap(byte[] value, Entry entry, Dictionary<string, Entry> entries, string directory, int depth)
     {

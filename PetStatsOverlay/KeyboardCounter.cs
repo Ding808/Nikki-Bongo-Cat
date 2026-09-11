@@ -14,6 +14,7 @@ public sealed class KeyboardCounter : IDisposable
     private bool lastLockState;
     private bool lastUnlockState;
     private readonly KeyboardHook settingsShortcutHook;
+    private readonly NativeInputThread settingsShortcutThread;
     private nint settingsShortcutHandle;
     private bool suppressSettingsKey;
 
@@ -26,6 +27,14 @@ public sealed class KeyboardCounter : IDisposable
     public KeyboardCounter()
     {
         settingsShortcutHook = SettingsShortcut;
+        settingsShortcutThread = new NativeInputThread("Nikki settings shortcut", () =>
+        {
+            settingsShortcutHandle = SetWindowsHookEx(13, settingsShortcutHook, GetModuleHandle(null), 0);
+        }, () =>
+        {
+            if (settingsShortcutHandle != 0) UnhookWindowsHookEx(settingsShortcutHandle);
+            settingsShortcutHandle = 0;
+        });
         trackedKeys = CreateTrackedKeys();
         lastState = trackedKeys.ToDictionary(key => key, _ => false);
         lastMouseState = mouseKeys.ToDictionary(key => key, _ => false);
@@ -41,8 +50,9 @@ public sealed class KeyboardCounter : IDisposable
 
     public void Start()
     {
-        if (settingsShortcutHandle == 0)
-            settingsShortcutHandle = SetWindowsHookEx(13, settingsShortcutHook, GetModuleHandle(null), 0);
+        // Global hooks must keep pumping even while the dashboard is repainting
+        // or saving settings. Polling/count updates remain on the UI timer.
+        settingsShortcutThread.Start();
         pollTimer.Start();
     }
 
@@ -50,8 +60,7 @@ public sealed class KeyboardCounter : IDisposable
     {
         pollTimer.Stop();
         pollTimer.Dispose();
-        if (settingsShortcutHandle != 0) UnhookWindowsHookEx(settingsShortcutHandle);
-        settingsShortcutHandle = 0;
+        settingsShortcutThread.Dispose();
     }
 
     private nint SettingsShortcut(int code, nint message, nint data)

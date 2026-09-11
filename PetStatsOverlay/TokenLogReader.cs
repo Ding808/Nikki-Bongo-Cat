@@ -39,9 +39,14 @@ public sealed class TokenLogReader
             }
         }
         // SDK result summaries repeat the per-message counters from the same transcript.
-        var detailed = records.Values.Where(r => !r.IsSessionSummary).Select(r => (r.SessionKey, r.Provider, r.Model)).ToHashSet();
+        var codexPrimarySnapshots = records.Values.Where(r => r.IsCodexRequest && r.CodexCumulativeKey.Length > 0)
+            .Select(r => r.CodexCumulativeKey).ToHashSet(StringComparer.Ordinal);
+        var detailed = records.Values.Where(r => !r.IsSessionSummary && r.Timestamp is not null && DateOnly.FromDateTime(r.Timestamp.Value) == date)
+            .Select(r => (r.SessionKey, r.Provider, r.Model)).ToHashSet();
         foreach (var record in records.Values)
         {
+            if (record.Timestamp is null || DateOnly.FromDateTime(record.Timestamp.Value) != date) continue;
+            if (record.IsCodexSnapshot && codexPrimarySnapshots.Contains(record.CodexCumulativeKey)) continue;
             if (record.IsSessionSummary && detailed.Contains((record.SessionKey, record.Provider, record.Model))) continue;
             record.EstimatedCost = priceCatalog.Estimate(record);
             usage.Add(record);
@@ -122,12 +127,20 @@ public sealed class TokenLogReader
         {
             index++;
             // Modification time cannot establish the date of a request.
-            if (!candidate.HasAnyUsage || candidate.Timestamp is null || DateOnly.FromDateTime(candidate.Timestamp.Value) != date) continue;
+            if (!candidate.HasAnyUsage || candidate.Timestamp is null) continue;
+            // Keep dated primary request metadata for cross-midnight snapshot deduplication.
+            if (!candidate.IsCodexRequest && DateOnly.FromDateTime(candidate.Timestamp.Value) != date) continue;
             candidate.Provider = ModelIdentity.ResolveProvider(candidate.Provider, candidate.Model, root.ProviderHint);
             candidate.Source = root.Name;
             candidate.SessionKey = state.SessionKey;
             var key = candidate.StableId is { Length: > 0 } id ? $"{candidate.Provider}:{id}" : $"{location}:{index}";
-            if (records.TryGetValue(key, out var previous)) previous.MergeSnapshot(candidate);
+            if (records.TryGetValue(key, out var previous))
+            {
+                // A compaction envelope can replay an earlier request. Its envelope
+                // time must never replace the authoritative request's actual date.
+                if (previous.IsCodexEmbeddedSnapshot && candidate.IsCodexRequest && !candidate.IsCodexEmbeddedSnapshot) records[key] = candidate;
+                else if (!(candidate.IsCodexEmbeddedSnapshot && previous.IsCodexRequest && !previous.IsCodexEmbeddedSnapshot)) previous.MergeSnapshot(candidate);
+            }
             else records[key] = candidate;
         }
     }
@@ -157,11 +170,23 @@ public sealed class LogFileState
     public string ModelHint { get; private set; } = "";
     public string? StreamMessageId { get; set; }
     public JsonElement PreviousCumulative { get; set; }
+    public string PendingCodexUsage { get; set; } = "";
+    public bool HasPendingCodexRequest { get; set; }
+    public bool IsCodexSession { get; private set; }
     public void Observe(JsonElement root)
     {
         var model = UsageRecordExtractor.ReadModel(root);
         if (model.Length > 0 && model != "<synthetic>") ModelHint = model;
-        if (JsonHelpers.ReadString(root, "type") == "session_meta" && JsonHelpers.TryGetPath(root, ["payload", "id"], out var id)) SessionKey = id.GetString() ?? SessionKey;
+        if (JsonHelpers.ReadString(root, "type") == "session_meta")
+        {
+            IsCodexSession = true;
+            if (JsonHelpers.TryGetPath(root, ["payload", "id"], out var id)) SessionKey = id.GetString() ?? SessionKey;
+        }
+        if (JsonHelpers.ReadString(root, "type") == "token_usage_record" && JsonHelpers.TryGetProperty(root, "payload", out var payload))
+        {
+            var threadId = JsonHelpers.FirstString(payload, "thread_id", "session_id");
+            if (threadId.Length > 0) SessionKey = threadId;
+        }
         var sessionId = JsonHelpers.FirstString(root, "sessionId", "session_id");
         if (sessionId.Length > 0) SessionKey = sessionId;
     }
@@ -172,12 +197,22 @@ public static class UsageRecordExtractor
     public static IEnumerable<UsageRecord> FindUsageRecords(JsonElement root, string providerHint, string modelHint, LogFileState? state = null)
     {
         state ??= new LogFileState();
+        var rootType = JsonHelpers.ReadString(root, "type");
+        if (rootType is "token_usage_record" or "compacted")
+        {
+            var record = CodexRequestRecord(root, providerHint, modelHint, state);
+            if (record is not null) yield return record;
+            yield break;
+        }
         if (JsonHelpers.TryGetPath(root, ["payload", "type"], out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "token_count")
         {
             var record = CodexRecord(root, providerHint, modelHint, state);
             if (record is not null) yield return record;
             yield break;
         }
+        // These are Codex transport/history envelopes, not additional API responses.
+        // Their embedded metadata and tool results may contain historical usage examples.
+        if (state.IsCodexSession || rootType is "session_meta" or "turn_context" or "event_msg" or "response_item" or "world_state" or "inter_agent_communication_metadata") yield break;
         var context = new RecordContext("", modelHint, null, null, 0, false, "", "", "");
         foreach (var record in Walk(root, context, providerHint, state, 0)) yield return record;
     }
@@ -213,7 +248,11 @@ public static class UsageRecordExtractor
                 var record = FromUsage(entry.Value, context with { Model = entry.Name, HasCost = false, Cost = 0 });
                 var cost = ReadCost(entry.Value, context.Currency);
                 if (cost is not null) { record.ExplicitCost = cost.Value; record.HasExplicitCost = true; }
-                record.StableId = $"summary:{state.SessionKey}:{entry.Name}";
+                // Each Agent SDK result summarizes one query, not the lifetime of the
+                // session. Distinct result UUIDs must not be collapsed into a maximum.
+                var resultId = First(JsonHelpers.ReadString(element, "uuid"), context.Id ?? "");
+                if (resultId.Length == 0 && context.Timestamp is not null) resultId = context.Timestamp.Value.ToString("O", CultureInfo.InvariantCulture);
+                record.StableId = resultId.Length > 0 ? $"summary:{state.SessionKey}:{resultId}:{entry.Name}" : null;
                 record.IsSessionSummary = true;
                 if (record.HasAnyUsage) yield return record;
             }
@@ -297,14 +336,56 @@ public static class UsageRecordExtractor
             Speed = First(JsonHelpers.ReadString(usage, "speed"), context.Speed), InferenceGeo = First(JsonHelpers.ReadString(usage, "inference_geo"), context.InferenceGeo)
         };
     }
+    private static UsageRecord? CodexRequestRecord(JsonElement root, string providerHint, string modelHint, LogFileState state)
+    {
+        if (!JsonHelpers.TryGetProperty(root, "payload", out var payload)) return null;
+        var embedded = JsonHelpers.ReadString(root, "type") == "compacted";
+        if (embedded)
+        {
+            var response = JsonHelpers.ReadString(payload, "compaction_response_id");
+            if (!JsonHelpers.TryGetProperty(payload, "latest_token_usage_record", out var latest)
+                || response.Length == 0 || response != JsonHelpers.ReadString(latest, "response_id")) return null;
+            payload = latest;
+            // Compaction time is not the original request time. A standalone record
+            // supplies that date; an embedded-only copy needs its own timestamp.
+            if (ReadTimestamp(payload) is null) return null;
+        }
+        if (!JsonHelpers.TryGetProperty(payload, "usage", out var usage) || usage.ValueKind != JsonValueKind.Object) return null;
+        var session = JsonHelpers.FirstString(payload, "thread_id", "session_id");
+        if (session.Length > 0) state.SessionKey = session;
+        var context = new RecordContext(providerHint, First(ReadModel(payload), modelHint, "codex"), ReadTimestamp(payload) ?? ReadTimestamp(root), null, 0, false, "", "", "");
+        var record = FromUsage(usage, context);
+        var responseId = JsonHelpers.FirstString(payload, "response_id", "request_id");
+        record.StableId = $"codex-request:{state.SessionKey}:" + (responseId.Length > 0 ? responseId : $"{record.Timestamp:O}:{CodexUsageFingerprint(usage)}");
+        record.IsCodexRequest = true;
+        record.IsCodexEmbeddedSnapshot = embedded;
+        if (JsonHelpers.TryGetProperty(payload, "thread_token_usage", out var cumulative) && cumulative.ValueKind == JsonValueKind.Object)
+            record.CodexCumulativeKey = $"{state.SessionKey}:{CodexUsageFingerprint(cumulative)}";
+        state.PendingCodexUsage = CodexUsageFingerprint(usage);
+        state.HasPendingCodexRequest = true;
+        return record;
+    }
+    private static string CodexUsageFingerprint(JsonElement usage) => string.Join(':',
+        JsonHelpers.ReadLong(usage, "input_tokens"), JsonHelpers.ReadLong(usage, "cached_input_tokens"),
+        JsonHelpers.ReadLong(usage, "cache_write_input_tokens"), JsonHelpers.ReadLong(usage, "output_tokens"),
+        JsonHelpers.FirstLong(usage, "reasoning_output_tokens", "reasoning_tokens"), JsonHelpers.ReadLong(usage, "total_tokens"));
     private static UsageRecord? CodexRecord(JsonElement root, string providerHint, string modelHint, LogFileState state)
     {
         JsonHelpers.TryGetPath(root, ["payload", "info", "last_token_usage"], out var last);
         JsonHelpers.TryGetPath(root, ["payload", "info", "total_token_usage"], out var cumulative);
+        if (last.ValueKind != JsonValueKind.Object && cumulative.ValueKind == JsonValueKind.Object
+            && (state.PreviousCumulative.ValueKind != JsonValueKind.Object || JsonHelpers.ReadLong(cumulative, "total_tokens") < JsonHelpers.ReadLong(state.PreviousCumulative, "total_tokens")))
+        {
+            // A first/reset cumulative-only snapshot is a baseline, not a dated request.
+            state.PreviousCumulative = cumulative.Clone();
+            state.HasPendingCodexRequest = false;
+            return null;
+        }
         var selected = last.ValueKind == JsonValueKind.Object ? last : cumulative;
         if (selected.ValueKind != JsonValueKind.Object) return null;
         var context = new RecordContext(providerHint, First(modelHint, ReadModel(root), "codex"), ReadTimestamp(root), null, 0, false, "", "", "");
         var record = FromUsage(selected, context);
+        record.IsCodexSnapshot = true;
         if (cumulative.ValueKind == JsonValueKind.Object)
         {
             var previous = state.PreviousCumulative;
@@ -316,7 +397,17 @@ public static class UsageRecordExtractor
                 record.TotalTokensOverride = Delta("total_tokens");
             }
             state.PreviousCumulative = cumulative.Clone();
-            record.StableId = $"codex:{state.SessionKey}:" + string.Join(':', new[] { "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "reasoning_tokens", "total_tokens" }.Select(f => JsonHelpers.ReadLong(cumulative, f)));
+            record.CodexCumulativeKey = $"{state.SessionKey}:{CodexUsageFingerprint(cumulative)}";
+            record.StableId = $"codex:{record.CodexCumulativeKey}";
+        }
+        // New Codex emits the exact request first, then a UI token_count snapshot.
+        // Compaction can offset the two cumulative counters, so compare the paired
+        // per-request usage rather than relying only on equality of cumulative totals.
+        var matchesPendingRequest = state.HasPendingCodexRequest && last.ValueKind == JsonValueKind.Object && state.PendingCodexUsage == CodexUsageFingerprint(last);
+        state.HasPendingCodexRequest = false;
+        if (matchesPendingRequest)
+        {
+            return null;
         }
         return record;
     }
@@ -609,6 +700,10 @@ public sealed class ProviderUsage
 }
 public sealed class UsageRecord
 {
+    public bool IsCodexRequest { get; set; }
+    public bool IsCodexSnapshot { get; set; }
+    public bool IsCodexEmbeddedSnapshot { get; set; }
+    public string CodexCumulativeKey { get; set; } = "";
     public string Provider { get; set; } = "";
     public string Model { get; set; } = "";
     public string Source { get; set; } = "";

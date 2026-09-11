@@ -1,35 +1,41 @@
-# Nikki Bongo Cat v1.1.0
+# Nikki Bongo Cat v1.1.1
 
 ## English
 
-Download **Nikki-Bongo-Cat-win-x64.zip**, extract the whole folder, and run **StartPetWithStats.cmd**. No .NET installation or compilation is needed. The automatically generated source archives are for developers. The companion `.zip.sha256` asset lets you verify the download checksum.
+This update fixes pointer slowdown after launch and inflated daily Codex usage. Mouse movement no longer performs graphics readbacks. Usage parsing now distinguishes individual requests from session/turn totals and deduplicates the modern and legacy Codex records for the same call.
 
-This release fixes missing Claude Desktop usage, including Opus 5 metadata from locally cached conversations, and broadens model recognition and pricing. Kimi, GLM, DeepSeek, Gemini, Grok, Qwen, MiniMax, Mistral, Claude, OpenAI, and many providers/gateways are covered by the supported log formats and price catalogue. The bundled offline snapshot contains 2,959 chat/completion/responses entries across 90 provider identifiers, including aliases and deployments.
+Daily statistics use your computer's local date and the request's recorded time. Yesterday's figures are cleared at midnight, and the update label shows the last completed scan. Models recorded in background/helper calls still appear in their actual day's usage. Costs are API-equivalent USD estimates, not subscription invoices.
 
-- English is now the default. Switch to Chinese in the panel header or **Settings → Language**; menus and customization screens switch immediately and remember your choice.
-- Resize the statistics panel independently under **Settings → Panel size**, from 65% to 175% with presets or a custom percentage.
-- Scroll through all observed models. Unknown-price models remain in token totals and usage shares; incomplete cost totals are visibly marked.
-- Drag with the left button or resize with the right button on the visible pet body. Transparent surroundings pass clicks through to your desktop applications.
-- The startup “Interactive” label has been removed.
-- Includes English/Chinese illustrated guides, regression checks, and a portable package without local logs, settings, backups, or build intermediates.
+Claude Desktop query summaries that clearly cross local midnight are skipped when they cannot be reliably split by day. Individually timestamped messages remain counted, so those daily totals may be incomplete.
 
-**Cost figures are API-equivalent USD estimates, not Claude Max or other subscription invoices.** Only usage metadata present in readable local logs/caches can be counted. Claude Desktop can evict or omit cached conversations; open a missing conversation locally and allow the next refresh. Your prompts and usage records are not uploaded.
+### Quick start with Steam
 
-For an upgrade, extract into a new folder and copy your settings and custom models/configuration if needed. Daily input history stays in your Windows profile. Read **README.md** or **README.zh-CN.md** in the package for controls, Steam setup, custom log folders, prices, and troubleshooting.
+1. Install **Bongo Cat** in Steam and stop it if it is running.
+2. Download **Nikki-Bongo-Cat-win-x64.zip** below and **extract the whole folder** to a permanent location. The **Source code** downloads do not contain the finished app.
+3. In the extracted folder, double-click **CopySteamLaunchOption.cmd**.
+4. Open **Steam → Library → Bongo Cat → Properties → General → Launch Options**. Replace the existing text with the copied option, including its quotes and `%command%`.
+5. Click **Play** in Steam. Click the small companion button to open the dashboard. Use **Settings → Panel size** to resize it; the **EN** menu offers Chinese.
+
+Both illustrated READMEs now include a fuller beginner's guide and troubleshooting. No .NET installation or compilation is needed. To use the pet without Steam, run **StartPetWithStats.cmd**.
+
+For upgrades, stop the old pet first. Extract this release, retain your settings/models if needed, and repeat the copy-and-paste steps if its folder path changes. Local daily input history stays in your Windows profile. The package excludes personal logs, usage data, settings, and build intermediates. A `.zip.sha256` asset is included for optional integrity checks.
 
 ## 简体中文
 
-请下载 **Nikki-Bongo-Cat-win-x64.zip**，完整解压后双击 **StartPetWithStats.cmd**。无需安装 .NET，也无需编译；GitHub 自动生成的源码压缩包面向开发者。另附 `.zip.sha256` 文件，可用于核对下载校验值。
+此版本修复启动后鼠标变慢、Codex 今日用量和估算花费异常放大的问题。鼠标移动不再同步读取图像；统计会区分单次请求与会话／回合累计量，并对同一调用的新旧日志去重。
 
-本次修复 Claude 桌面端本地缓存用量缺失的问题，包括 Opus 5 模型信息，并扩展模型识别和价格统计。支持的日志格式和价格目录覆盖 Kimi、GLM、DeepSeek、Gemini、Grok、Qwen、MiniMax、Mistral、Claude、OpenAI 及多种厂商／网关。离线快照内置来自 90 个服务商标识的 2,959 条聊天／补全／Responses 记录，包括别名和部署。
+今日统计以电脑本地日期和请求记录的发生时间为准。跨午夜清除昨日数据，“更新于”显示最近一次完成扫描的时间。应用后台／辅助调用中实际记录的模型仍会计入对应日期。花费为按 API 单价折算的美元估算值，并非订阅账单。
 
-- 首次启动默认英文。可在面板右上角或“高级详情 → 语言”切换中文，菜单与自定义界面即时切换并保存选择。
-- “高级详情 → 面板大小”可以独立调整统计面板，支持 65%–175% 预设及自定义百分比。
-- 模型列表可以滚动查看全部已记录模型。缺价模型仍计入令牌总量和占比，花费不完整时明确提示。
-- 仅从可见桌宠本体开始的左键拖动和右键缩放会操作桌宠，周围透明区域可以正常操作其他应用。
-- 移除启动时的“可交互”字样。
-- 补齐带图中英文文档、回归检查和完整便携成品包，排除本地日志、个人设置、备份及构建中间文件。
+明确跨本地午夜、无法可靠按日拆分的 Claude 桌面端查询总摘要会被跳过；有时间戳的逐条消息仍会统计，因此相关日期的用量可能不完整。
 
-**花费是按 API 单价折算的美元估算值，不是 Claude Max 等订阅账单。** 只能统计本机日志／缓存实际包含的可读取用量。Claude 桌面端可能清理或未缓存部分会话；可以在本机打开缺失会话后等待下一次刷新。提示词和用量记录不会被上传。
+### 通过 Steam 快速开始
 
-升级时建议解压到新文件夹，再复制需要保留的设置、自定义模型和配置；每日输入历史保留在 Windows 用户目录。操作方法、Steam 配置、日志目录、自定义价格和排错说明请阅读包内 **README.zh-CN.md** 或 **README.md**。
+1. 在 Steam 安装 **Bongo Cat**；如果正在运行，先停止。
+2. 下载下方的 **Nikki-Bongo-Cat-win-x64.zip**，将**整个文件夹解压**到准备长期存放的位置。不要下载 **Source code** 源码包。
+3. 在解压后的文件夹内双击 **CopySteamLaunchOption.cmd**，自动复制启动参数。
+4. 打开 **Steam → 库 → Bongo Cat → 属性 → 通用 → 启动选项**，用复制的内容完整替换旧参数，保留双引号和 `%command%`。
+5. 在 Steam 点击“开始游戏”。点击桌宠旁的小入口打开面板，通过 **EN → Language → Chinese** 切换中文；“高级详情 → 面板大小”可调整大小。
+
+中英文 README 均已补充更详细的新手教程、预览图和常见问题。无需安装 .NET 或编译。不使用 Steam 时，直接运行 **StartPetWithStats.cmd**。
+
+升级前先停止旧版桌宠。解压此版本，按需保留设置和模型；解压路径改变后，务必重新复制并粘贴 Steam 参数。每日输入历史保留在 Windows 用户目录中。发布包不含个人日志、用量数据、设置或构建中间文件；另附 `.zip.sha256` 文件供可选校验。

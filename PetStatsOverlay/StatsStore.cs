@@ -5,6 +5,7 @@ namespace PetStatsOverlay;
 
 public sealed class StatsStore
 {
+    private readonly Dictionary<string, DailyState> pendingDays = new();
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -61,6 +62,7 @@ public sealed class StatsStore
 
     public void ResetToday()
     {
+        EnsureToday();
         Today = new DailyState
         {
             Date = DateOnly.FromDateTime(DateTime.Now),
@@ -74,8 +76,10 @@ public sealed class StatsStore
     {
         EnsureToday();
         var state = LoadState();
+        foreach (var day in pendingDays) state.Days[day.Key] = day.Value;
         state.Days[Today.Date.ToString("yyyy-MM-dd")] = Today;
         File.WriteAllText(StatePath, JsonSerializer.Serialize(state, JsonOptions));
+        pendingDays.Clear();
     }
 
     public void SaveSettings()
@@ -83,16 +87,21 @@ public sealed class StatsStore
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(Settings, JsonOptions));
     }
 
-    private void EnsureToday()
+    public bool EnsureToday()
     {
         var current = DateOnly.FromDateTime(DateTime.Now);
         if (Today.Date != current)
         {
+            // Retain the final counts until Save succeeds. Rollover itself does
+            // no disk I/O on the frequent input timer.
+            pendingDays[Today.Date.ToString("yyyy-MM-dd")] = Today;
             Today = new DailyState
             {
                 Date = current
             };
+            return true;
         }
+        return false;
     }
 
     private PetStatsSettings LoadSettings()

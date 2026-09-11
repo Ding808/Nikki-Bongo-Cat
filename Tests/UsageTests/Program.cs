@@ -32,6 +32,22 @@ DailyUsage Read(params string[] lines)
     return new TokenLogReader(settings, Path.Combine(folder, "cache")).GetUsage(date);
 }
 string At(string json, string? time = null) => json.Replace("@TIME@", time ?? today);
+object CodexTokens(long input, long output) => new { input_tokens = input, cached_input_tokens = 0, cache_write_input_tokens = 0, output_tokens = output, reasoning_output_tokens = 0, total_tokens = input + output };
+string CodexRequest(string time, string id, long input, long output, long cumulativeInput, long cumulativeOutput) => JsonSerializer.Serialize(new
+{
+    timestamp = time, type = "token_usage_record", payload = new { thread_id = "codex-session", session_id = "codex-session", response_id = id,
+        usage = CodexTokens(input, output), turn_token_usage = CodexTokens(cumulativeInput, cumulativeOutput), thread_token_usage = CodexTokens(cumulativeInput, cumulativeOutput) }
+});
+string CodexSnapshot(string time, long input, long output, long cumulativeInput, long cumulativeOutput) => JsonSerializer.Serialize(new
+{
+    timestamp = time, type = "event_msg", payload = new { type = "token_count", info = new { last_token_usage = CodexTokens(input, output), total_token_usage = CodexTokens(cumulativeInput, cumulativeOutput) } }
+});
+string CodexSession() => """{"type":"session_meta","payload":{"id":"codex-session"}}""";
+string CodexCompaction(string time, string id, long input, long output, long cumulativeInput, long cumulativeOutput)
+{
+    using var request = JsonDocument.Parse(CodexRequest(time, id, input, output, cumulativeInput, cumulativeOutput));
+    return JsonSerializer.Serialize(new { timestamp = time, type = "compacted", payload = new { compaction_response_id = id, latest_token_usage_record = request.RootElement.GetProperty("payload") } });
+}
 Test("Claude nested context keeps model/date/id and parses once", () =>
 {
     var r = Parse(At("""{"uuid":"wrapper","timestamp":"@TIME@","message":{"id":"msg","model":"claude-opus-5","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":30,"cache_creation_input_tokens":40,"cache_creation":{"ephemeral_5m_input_tokens":15,"ephemeral_1h_input_tokens":25}}}}"""));
@@ -108,10 +124,107 @@ Test("Codex delta uses prior day's baseline", () =>
     var now = At("""{"timestamp":"@TIME@","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":10,"total_tokens":110},"total_token_usage":{"input_tokens":150,"output_tokens":30,"total_tokens":180}}}}""");
     Equal(70L, Read(before, now, now).TotalTokens);
 });
+Test("Codex request records never count turn/thread cumulative totals", () =>
+{
+    var usage = Read(CodexRequest(today, "request-one", 100, 10, 1000000, 200000), CodexRequest(today, "request-two", 200, 20, 1000200, 200020));
+    Equal(330L, usage.TotalTokens); Equal(2, usage.RecordCount);
+});
+Test("Codex primary requests and UI snapshots count once", () =>
+{
+    var usage = Read(CodexSession(), CodexRequest(today, "request-one", 100, 10, 100, 10), CodexSnapshot(today, 100, 10, 100, 10),
+        CodexRequest(today, "request-two", 200, 20, 300, 30), CodexSnapshot(today, 200, 20, 300, 30), CodexSnapshot(today, 200, 20, 300, 30));
+    Equal(330L, usage.TotalTokens); Equal(2, usage.RecordCount);
+});
+Test("Codex compaction offsets do not defeat request/snapshot pairing", () =>
+{
+    var usage = Read(CodexSession(), CodexRequest(today, "request-one", 100, 10, 1100, 210), CodexSnapshot(today, 100, 10, 100, 10),
+        CodexRequest(today, "request-two", 200, 20, 1300, 230), CodexSnapshot(today, 200, 20, 300, 30), CodexSnapshot(today, 200, 20, 300, 30));
+    Equal(330L, usage.TotalTokens); Equal(2, usage.RecordCount);
+});
+Test("Codex compaction metadata replays the same request without cumulative billing", () =>
+{
+    var usage = Read(CodexRequest(today, "compaction", 100, 10, 1000000, 200000), CodexCompaction(today, "compaction", 100, 10, 1000000, 200000));
+    Equal(110L, usage.TotalTokens); Equal(1, usage.RecordCount);
+});
+Test("Undated embedded usage never inherits today's compaction timestamp", () =>
+{
+    var usage = Read(CodexCompaction(today, "no-original-date", 100, 10, 1000000, 200000));
+    Equal(0L, usage.TotalTokens); Equal(0, usage.RecordCount);
+});
+Test("Codex replay envelope cannot move an old request across midnight", () =>
+{
+    var usage = Read(CodexCompaction(today, "old-request", 100, 10, 1000000, 200000), CodexRequest(yesterday, "old-request", 100, 10, 1000000, 200000));
+    Equal(0L, usage.TotalTokens); Equal(0, usage.RecordCount);
+});
+Test("Unmatched snapshot consumes pending pair without swallowing later requests", () =>
+{
+    var usage = Read(CodexSession(), CodexRequest(today, "request-one", 100, 10, 100, 10), CodexSnapshot(today, 200, 20, 300, 30), CodexSnapshot(today, 100, 10, 400, 40));
+    Equal(440L, usage.TotalTokens); Equal(3, usage.RecordCount);
+});
+Test("Codex mixed legacy and new requests retain actual old-format calls", () =>
+{
+    var usage = Read(CodexSession(), CodexSnapshot(today, 100, 10, 100, 10), CodexRequest(today, "request-two", 200, 20, 300, 30), CodexSnapshot(today, 200, 20, 300, 30));
+    Equal(330L, usage.TotalTokens); Equal(2, usage.RecordCount);
+});
+Test("Codex delayed midnight snapshots keep the request's actual date", () =>
+{
+    var justBeforeMidnight = DateTime.Today.AddMilliseconds(-100).ToString("O");
+    var justAfterMidnight = DateTime.Today.AddMilliseconds(100).ToString("O");
+    var usage = Read(CodexSession(), CodexRequest(justBeforeMidnight, "old-request", 100, 10, 100, 10), CodexSnapshot(justAfterMidnight, 100, 10, 100, 10),
+        CodexRequest(justAfterMidnight, "new-request", 200, 20, 300, 30), CodexSnapshot(justAfterMidnight, 200, 20, 300, 30));
+    Equal(220L, usage.TotalTokens); Equal(1, usage.RecordCount);
+});
+Test("Codex reverse-order and repeated export records deduplicate", () =>
+{
+    var usage = Read(CodexSession(), CodexSnapshot(today, 100, 10, 100, 10), CodexRequest(today, "request-one", 100, 10, 100, 10), CodexRequest(today, "request-one", 100, 10, 100, 10));
+    Equal(110L, usage.TotalTokens); Equal(1, usage.RecordCount);
+});
+Test("Codex equal-size separate requests remain separate", () =>
+{
+    var usage = Read(CodexSession(), CodexRequest(today, "request-one", 100, 10, 100, 10), CodexSnapshot(today, 100, 10, 100, 10),
+        CodexRequest(today, "request-two", 100, 10, 200, 20), CodexSnapshot(today, 100, 10, 200, 20));
+    Equal(220L, usage.TotalTokens); Equal(2, usage.RecordCount);
+});
+Test("Codex first cumulative-only event establishes a baseline", () =>
+{
+    var usage = Read(At("""{"timestamp":"@TIME@","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000000,"output_tokens":200000,"total_tokens":1200000}}}}"""),
+        At("""{"timestamp":"@TIME@","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000100,"output_tokens":200010,"total_tokens":1200110}}}}"""));
+    Equal(110L, usage.TotalTokens); Equal(1, usage.RecordCount);
+});
+Test("Codex cumulative-only resets are fresh baselines", () =>
+{
+    string Event(long input) => JsonSerializer.Serialize(new { timestamp = today, type = "event_msg", payload = new { type = "token_count", info = new { total_token_usage = CodexTokens(input, 0) } } });
+    var usage = Read(Event(1000000), Event(100), Event(110));
+    Equal(10L, usage.TotalTokens); Equal(1, usage.RecordCount);
+});
+Test("Codex history/tool envelopes cannot introduce embedded model counters", () =>
+{
+    var usage = Read(CodexSession(), At("""{"timestamp":"@TIME@","type":"world_state","payload":{"state":{"model":"yesterday-model","usage":{"input_tokens":999999}}}}"""),
+        At("""{"timestamp":"@TIME@","type":"response_item","payload":{"type":"function_call_output","output":{"model":"yesterday-model","usage":{"input_tokens":999999}}}}"""),
+        At("""{"timestamp":"@TIME@","type":"future-history-envelope","payload":{"model":"yesterday-model","usage":{"input_tokens":999999}}}"""),
+        CodexRequest(today, "actual", 100, 10, 100, 10));
+    Equal(110L, usage.TotalTokens); Equal(1, usage.RecordCount);
+});
 Test("SDK camelCase model summaries supported", () =>
 {
     var usage = Read(At("""{"timestamp":"@TIME@","session_id":"sdk","modelUsage":{"claude-opus-5":{"inputTokens":10,"outputTokens":20,"cacheReadInputTokens":30,"cacheCreationInputTokens":40,"costUSD":0.25}}}"""));
     Equal(100L, usage.TotalTokens); Equal(0.25M, usage.EstimatedCost);
+});
+Test("SDK independent result UUIDs in one session are separate queries", () =>
+{
+    var usage = Read(
+        At("""{"timestamp":"@TIME@","type":"result","uuid":"result-one","session_id":"sdk","modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":10915,"outputTokens":572}}}"""),
+        At("""{"timestamp":"@TIME@","type":"result","uuid":"result-two","session_id":"sdk","modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":15626,"outputTokens":489}}}"""),
+        At("""{"timestamp":"@TIME@","type":"result","uuid":"result-three","session_id":"sdk","modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":34348,"outputTokens":1132}}}"""),
+        At("""{"timestamp":"@TIME@","type":"result","uuid":"result-three","session_id":"sdk","modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":34348,"outputTokens":1132}}}"""));
+    Equal(63082L, usage.TotalTokens); Equal(3, usage.RecordCount);
+});
+Test("SDK result dates filter independently within one reused session", () =>
+{
+    var usage = Read(
+        At("""{"timestamp":"@TIME@","type":"result","uuid":"yesterday-result","session_id":"sdk","modelUsage":{"old-model":{"inputTokens":999999,"outputTokens":999}}}""", yesterday),
+        At("""{"timestamp":"@TIME@","type":"result","uuid":"today-result","session_id":"sdk","modelUsage":{"today-model":{"inputTokens":100,"outputTokens":10}}}"""));
+    Equal(110L, usage.TotalTokens); Equal(1, usage.RecordCount); Equal("today-model", usage.Providers.Single().Records.Single().Model);
 });
 Test("SDK summary does not repeat assistant records", () =>
 {

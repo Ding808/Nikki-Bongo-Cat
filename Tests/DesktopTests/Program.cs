@@ -82,6 +82,47 @@ try
     File.WriteAllBytes(Path.Combine(db, "000011.log"), Wal(Batch(100, (key, Concat(Varint(7), Blink(mixed))))));
     Check("per-model summaries retain models missing from assistant messages", rows => rows.Count == 2
         && rows.Any(row => row.Payload.TryGetProperty("modelUsage", out var models) && models.TryGetProperty("claude-haiku-4-5", out _)));
+
+    var previousDay = new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Local);
+    var nextDay = previousDay.AddDays(1);
+    var crossDay = EventConversation(
+        QueryEvent("user", "start-cross", Stamp(previousDay.AddHours(23).AddMinutes(58)), serverTimestamp: true),
+        QueryEvent("assistant", "before-midnight", Stamp(previousDay.AddHours(23).AddMinutes(59))),
+        QueryEvent("assistant", "after-midnight", Stamp(nextDay.AddMinutes(1))),
+        QueryEvent("result", "end-cross", Stamp(nextDay.AddMinutes(2))));
+    File.WriteAllBytes(Path.Combine(db, "000012.log"), Wal(Batch(110, (key, Concat(Varint(8), Blink(crossDay))))));
+    Check("cross-local-midnight query drops summary but preserves dated messages", rows => rows.Count == 2
+        && rows.All(row => row.Payload.GetProperty("type").GetString() == "assistant")
+        && rows.Select(row => DateTimeOffset.Parse(row.Payload.GetProperty("timestamp").GetString()!).LocalDateTime.Date).Distinct().Count() == 2);
+
+    var resumed = EventConversation(
+        QueryEvent("user", "start-old", Stamp(previousDay.AddHours(20)), serverTimestamp: true),
+        QueryEvent("result", "end-old", Stamp(previousDay.AddHours(21))),
+        QueryEvent("user", "start-new", Stamp(nextDay.AddHours(10)), serverTimestamp: true),
+        QueryEvent("assistant", "new-message", Stamp(nextDay.AddHours(10).AddMinutes(1))),
+        QueryEvent("result", "end-new", Stamp(nextDay.AddHours(10).AddMinutes(2))));
+    File.WriteAllBytes(Path.Combine(db, "000013.log"), Wal(Batch(120, (key, Concat(Varint(9), Blink(resumed))))));
+    Check("same session's completed old query does not invalidate a new-day query", rows => rows.Count == 3
+        && rows.Count(row => row.Payload.GetProperty("type").GetString() == "result") == 2
+        && rows.Any(row => row.Payload.TryGetProperty("uuid", out var id) && id.GetString() == "end-new"));
+
+    var fallbackResult = QueryEvent("result", "valid-server-time", "invalid-date");
+    fallbackResult["serverCreatedAt"] = Stamp(nextDay.AddHours(11).AddMinutes(2));
+    ((Dictionary<string, object?>)fallbackResult["payload"]!).Remove("session_id");
+    fallbackResult["sessionId"] = "fixture-session";
+    var uncertain = EventConversation(
+        QueryEvent("user", "unknown-start", "invalid-date"),
+        QueryEvent("assistant", "dated-message", Stamp(nextDay.AddHours(11))),
+        fallbackResult,
+        QueryEvent("user", "missing-start", null),
+        QueryEvent("result", "missing-end", null));
+    File.WriteAllBytes(Path.Combine(db, "000014.log"), Wal(Batch(130, (key, Concat(Varint(10), Blink(uncertain))))));
+    Check("invalid timestamps use valid event metadata without inventing missing dates", rows => rows.Count == 3
+        && rows.Any(row => row.Payload.TryGetProperty("uuid", out var id) && id.GetString() == "valid-server-time"
+            && row.Payload.GetProperty("session_id").GetString() == "fixture-session"
+            && row.Payload.GetProperty("timestamp").GetString() == Stamp(nextDay.AddHours(11).AddMinutes(2)))
+        && rows.Any(row => row.Payload.TryGetProperty("uuid", out var id) && id.GetString() == "missing-end"
+            && !row.Payload.TryGetProperty("timestamp", out _) && !row.Payload.TryGetProperty("created_at", out _)));
     Console.WriteLine($"PASS: {passed} desktop cache regression checks.");
 }
 finally { Directory.Delete(root, true); }
@@ -115,6 +156,27 @@ static Dictionary<string, object?> Conversation(string id, int input, int output
         }
     }
 };
+
+static string Stamp(DateTime local) => new DateTimeOffset(local).ToUniversalTime().ToString("O");
+static Dictionary<string, object?> EventConversation(params object?[] events) => new()
+{
+    ["tree"] = new Dictionary<string, object?> { ["events"] = events }
+};
+static Dictionary<string, object?> QueryEvent(string type, string id, string? timestamp, bool serverTimestamp = false)
+{
+    var payload = new Dictionary<string, object?> { ["type"] = type, ["session_id"] = "fixture-session", ["uuid"] = id };
+    var entry = new Dictionary<string, object?> { ["payload"] = payload };
+    if (timestamp is not null) (serverTimestamp ? entry : payload)[serverTimestamp ? "serverCreatedAt" : "timestamp"] = timestamp;
+    if (type == "assistant") payload["message"] = new Dictionary<string, object?>
+    {
+        ["id"] = id, ["model"] = "claude-opus-5", ["usage"] = new Dictionary<string, object?> { ["input_tokens"] = 100, ["output_tokens"] = 20 }
+    };
+    if (type == "result") payload["modelUsage"] = new Dictionary<string, object?>
+    {
+        ["claude-haiku-4-5"] = new Dictionary<string, object?> { ["inputTokens"] = 200, ["outputTokens"] = 40 }
+    };
+    return entry;
+}
 
 static byte[] Blink(object? obj) => Concat(new byte[] {255,21,254}, new byte[12], new byte[] {255,16}, V8(obj));
 static byte[] V8(object? obj)

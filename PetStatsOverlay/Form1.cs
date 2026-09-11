@@ -67,7 +67,9 @@ public sealed partial class Form1 : Form
 
     private List<(string Name, int Percent)> providerRowsForDisplay = new();
 
-    private DailyUsage cachedUsage = new();
+    private DailyUsage cachedUsage = new() { Date = DateOnly.FromDateTime(DateTime.Now) };
+    private DateTime? usageRefreshedAt;
+    private bool usageRefreshFailed;
     private long pendingTypingCount;
     private long pendingMouseClickCount;
     private bool expanded;
@@ -104,7 +106,11 @@ public sealed partial class Form1 : Form
         refreshTimer.Tick += (_, _) => BeginUsageRefresh();
 
         inputFlushTimer = new System.Windows.Forms.Timer { Interval = 250 };
-        inputFlushTimer.Tick += (_, _) => FlushInputToMemory();
+        inputFlushTimer.Tick += (_, _) =>
+        {
+            if (EnsureCurrentDay()) BeginUsageRefresh();
+            FlushInputToMemory();
+        };
 
         saveTimer = new System.Windows.Forms.Timer { Interval = 5_000 };
         saveTimer.Tick += (_, _) => SaveInputIfNeeded();
@@ -1068,6 +1074,14 @@ public sealed partial class Form1 : Form
 
     private void UpdateView(DailyUsage usage)
     {
+        // A scan can finish after midnight; yesterday's result must never be
+        // displayed under today's heading, even if the next scan fails.
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (usage.Date != today)
+        {
+            usage = new DailyUsage { Date = today };
+            usageRefreshedAt = null;
+        }
         cachedUsage = usage;
         var providerRows = GetProviderRows(usage).ToList();
         var providerRowCountChanged = providerRows.Count != providerRowsForDisplay.Count;
@@ -1092,12 +1106,33 @@ public sealed partial class Form1 : Form
         typingValueLabel.Text = $"{store.Today.TypingCount:N0}";
         mouseValueLabel.Text = $"{store.Today.MouseClickCount:N0}";
         providerTitleLabel.Text = L.Text("\ud83d\udcca \u6a21\u578b\u4f7f\u7528\u5360\u6bd4");
+        var modelTokens = usage.Providers.SelectMany(provider => provider.Records)
+            .GroupBy(ModelBreakdownKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Sum(record => record.TotalTokens), StringComparer.OrdinalIgnoreCase);
         for (var index = 0; index < providerRowsForDisplay.Count; index++)
         {
-            providerLineLabels[index].Text = providerRowsForDisplay[index].Name;
-            providerPercentLabels[index].Text = $"{providerRowsForDisplay[index].Percent}%";
+            var row = providerRowsForDisplay[index];
+            var tokens = modelTokens.GetValueOrDefault(row.Name);
+            var exactShare = usage.TotalTokens > 0 ? tokens * 100D / usage.TotalTokens : 0;
+            providerLineLabels[index].Text = row.Name;
+            providerPercentLabels[index].Text = row.Percent == 0 && tokens > 0 ? "<1%" : $"{row.Percent}%";
+            var detail = L.Pick($"{row.Name}\n{tokens:N0} tokens · {exactShare:0.####}% of today's tokens",
+                $"{row.Name}\n{tokens:N0} 令牌 · 占今日令牌的 {exactShare:0.####}%");
+            toolTip.SetToolTip(providerLineLabels[index], detail);
+            toolTip.SetToolTip(providerPercentLabels[index], detail);
         }
-        updatedLabel.Text = DateTime.Now.ToString(L.Text("'\u66f4\u65b0\u4e8e' HH:mm"), CultureInfo.InvariantCulture);
+        updatedLabel.Text = usageRefreshFailed
+            ? L.Pick("Refresh failed · retrying", "刷新失败 · 将自动重试")
+            : usageRefreshedAt is { } refreshed
+                ? refreshed.ToString(L.Text("'\u66f4\u65b0\u4e8e' HH:mm"), CultureInfo.InvariantCulture)
+                : L.Pick("Reading today's usage…", "正在读取今日用量…");
+        var dateText = usage.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var periodText = L.Pick($"{dateText} · 00:00–24:00 in your computer's local time. Only timestamped usage is counted.",
+            $"{dateText} · 按电脑本地时间统计 00:00–24:00，仅计入有明确时间的用量记录。");
+        toolTip.SetToolTip(updatedLabel, periodText);
+        toolTip.SetToolTip(tokenValueLabel, periodText);
+        toolTip.SetToolTip(providerTitleLabel, L.Pick("Models recorded by your local AI apps, including any background or helper calls those apps make.",
+            "本机 AI 应用日志中记录的模型，包括应用自动发起的后台或辅助调用。"));
         if (alwaysVisibleCheckBox.Checked != store.Settings.CompanionUi.ButtonAlwaysVisible)
         {
             alwaysVisibleCheckBox.Checked = store.Settings.CompanionUi.ButtonAlwaysVisible;
@@ -1135,38 +1170,55 @@ public sealed partial class Form1 : Form
         hasUnsavedInput = false;
     }
 
-    private void BeginUsageRefresh()
+    private bool EnsureCurrentDay()
     {
-        if (usageRefreshRunning)
+        var inputChanged = store.EnsureToday();
+        if (inputChanged) hasUnsavedInput = true;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var usageChanged = cachedUsage.Date != today;
+        if (usageChanged)
+        {
+            cachedUsage = new DailyUsage { Date = today };
+            usageRefreshedAt = null;
+            usageRefreshFailed = false;
+        }
+        if (inputChanged || usageChanged) UpdateView(cachedUsage);
+        return usageChanged;
+    }
+
+    private async void BeginUsageRefresh()
+    {
+        EnsureCurrentDay();
+        if (usageRefreshRunning || IsDisposed)
         {
             return;
         }
 
         usageRefreshRunning = true;
-        Task.Run(() =>
+        var date = DateOnly.FromDateTime(DateTime.Now);
+        try
         {
-            try
-            {
-                return tokenLogReader.GetTodayUsage();
-            }
-            catch
-            {
-                return cachedUsage;
-            }
-        }).ContinueWith(task =>
+            var usage = await Task.Run(() => tokenLogReader.GetUsage(date));
+            if (IsDisposed || Disposing) return;
+            EnsureCurrentDay();
+            if (usage.Date != DateOnly.FromDateTime(DateTime.Now)) return;
+            usageRefreshedAt = DateTime.Now;
+            usageRefreshFailed = false;
+            UpdateView(usage);
+        }
+        catch
         {
+            if (IsDisposed || Disposing) return;
+            EnsureCurrentDay();
+            usageRefreshFailed = true;
+            UpdateView(cachedUsage);
+        }
+        finally
+        {
+            // All refresh state is owned by the UI thread, including completion.
             usageRefreshRunning = false;
-            if (IsDisposed || !IsHandleCreated)
-            {
-                return;
-            }
-
-            BeginInvoke(() =>
-            {
-                cachedUsage = task.Result;
-                UpdateView(cachedUsage);
-            });
-        }, TaskScheduler.Default);
+            if (!IsDisposed && !Disposing && date != DateOnly.FromDateTime(DateTime.Now)) BeginUsageRefresh();
+        }
     }
 
     private void SetPetLock(bool locked)

@@ -22,6 +22,41 @@ internal static class Program
         form.Show();
         var preview = CreateUsage(8);
         Invoke(form, "UpdateView", preview);
+        var refreshed = DateTime.Now.AddMinutes(-3);
+        typeof(Form1).GetField("usageRefreshedAt", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(form, refreshed);
+        Invoke(form, "UpdateView", preview);
+        var refreshText = GetField<Label>(form, "updatedLabel").Text;
+        store.AddTyping(1);
+        Invoke(form, "UpdateView", preview);
+        Assert(GetField<Label>(form, "updatedLabel").Text == refreshText, "Typing must not pretend usage was refreshed.");
+        var yesterday = CreateUsage(2);
+        yesterday.Date = DateOnly.FromDateTime(DateTime.Now).AddDays(-1);
+        Invoke(form, "UpdateView", yesterday);
+        Assert(GetField<DailyUsage>(form, "cachedUsage").RecordCount == 0, "Yesterday's scan appeared under today's heading.");
+        store.Today.Date = yesterday.Date;
+        store.Today.TypingCount = 123;
+        Assert(store.EnsureToday() && store.Today.TypingCount == 0, "Input counts did not reset at midnight.");
+        store.Save();
+        var savedDays = System.Text.Json.JsonDocument.Parse(File.ReadAllText(store.StatePath));
+        Assert(savedDays.RootElement.GetProperty("Days").GetProperty(yesterday.Date.ToString("yyyy-MM-dd")).GetProperty("TypingCount").GetInt64() == 123,
+            "Midnight rollover lost the previous day's input counts.");
+        savedDays.Dispose();
+        store.Today.Date = yesterday.Date;
+        store.Today.TypingCount = 456;
+        store.ResetToday();
+        using (var resetDays = System.Text.Json.JsonDocument.Parse(File.ReadAllText(store.StatePath)))
+            Assert(resetDays.RootElement.GetProperty("Days").GetProperty(yesterday.Date.ToString("yyyy-MM-dd")).GetProperty("TypingCount").GetInt64() == 456,
+                "Reset immediately after midnight lost yesterday's pending counts.");
+        store.AddTyping(5208);
+        store.AddMouseClicks(1342);
+        Invoke(form, "UpdateView", preview);
+        typeof(Form1).GetField("usageRefreshedAt", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(form, DateTime.Now);
+        var tinyShare = CreateUsage(1);
+        tinyShare.Add(new UsageRecord { Provider = "custom", Model = "small-model", InputTokens = 1, IsPriced = true });
+        tinyShare.RecalculateTotals();
+        Invoke(form, "UpdateView", tinyShare);
+        Assert(GetField<List<Label>>(form, "providerPercentLabels")[1].Text == "<1%", "Small nonzero usage was displayed as zero.");
+        Invoke(form, "UpdateView", preview);
         var percentages = GetField<List<(string Name, int Percent)>>(form, "providerRowsForDisplay");
         Assert(percentages.Sum(row => row.Percent) == 100, "Rounded model shares must total 100%.");
         Invoke(form, "SetExpanded", true);
@@ -60,7 +95,7 @@ internal static class Program
         Invoke(form, "SetLanguage", "en");
         Assert(list.AutoScrollPosition.Y < 0 && list.Controls[0].Top < 0, "Language switch broke scrolled model rows.");
         Invoke(form, "SetLanguage", "zh");
-        var unpriced = new DailyUsage();
+        var unpriced = new DailyUsage { Date = DateOnly.FromDateTime(DateTime.Now) };
         unpriced.Add(new UsageRecord { Model = "future-model", Provider = "custom", InputTokens = 700, IsPriced = false });
         unpriced.RecalculateTotals();
         Invoke(form, "UpdateView", unpriced);

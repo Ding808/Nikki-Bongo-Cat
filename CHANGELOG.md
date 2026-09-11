@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.1.1 — 2026-09-11
+
+### English
+
+- Fixed system-wide pointer slowdown by moving the mouse hook off the dashboard thread and sampling the pet's alpha mask in the background. Mouse movement no longer reads graphics pixels or changes window styles.
+- Fixed inflated Codex usage and cost when modern request records and legacy token events coexist. Session and turn totals are no longer mistaken for individual requests, and matching records are counted once.
+- Excluded undated compaction/history copies from daily usage, and kept distinct Claude Agent SDK result UUIDs as distinct queries when counting model summaries.
+- Kept daily totals tied to request timestamps in the computer's local time. Yesterday's dashboard data is cleared at midnight, including when a scan finishes after the date changes.
+- Skipped Claude Desktop query summaries that clearly cross local midnight and cannot be split reliably by day. Individually timestamped messages remain counted; unsplittable summary usage is omitted.
+- Preserved pending input counts during midnight rollover and reset. The update time now reflects a completed usage scan, rather than a keystroke or display change.
+- Small nonzero model shares show `<1%` instead of zero, with token counts and more precise percentages on hover.
+- Rewrote both READMEs with a six-step Steam quick start, the exact finished ZIP to download, automatic launch-option copying, and troubleshooting for source downloads and moved folders.
+
+### 简体中文
+
+- 修复启动后系统鼠标变慢的问题：鼠标钩子与统计界面分离，后台采样桌宠透明度；鼠标移动不再同步读取图像或切换窗口样式。
+- 修复 Codex 新旧用量记录并存时令牌与估算花费异常放大：不再把会话／回合累计量当作单次请求，并对相同调用去重。
+- 排除没有原始请求时间的压缩／历史副本；Claude Agent SDK 的不同结果 UUID 按独立查询统计模型摘要。
+- 按电脑本地时间和请求发生时间统计今日用量；跨午夜清除昨日面板数据，过期扫描结果不会重新显示为今日数据。
+- 跳过明确跨本地午夜、无法可靠按日拆分的 Claude 桌面端查询总摘要；仍统计有时间戳的逐条消息，不把无法拆分的摘要全量计入结束日。
+- 跨日和重置时保留尚未保存的昨日输入次数；“更新于”仅表示用量扫描完成时间，不再随打字或界面变化刷新。
+- 较小的非零模型占比显示为 `<1%`；悬停可查看令牌数和更精确的比例。
+- 重写中英文 README 的六步 Steam 快速入门，明确成品 ZIP 下载、自动复制启动参数，并补充误下源码和移动目录的处理方法。
+
 ## v1.1.0 — 2026-09-11
 
 ### English
