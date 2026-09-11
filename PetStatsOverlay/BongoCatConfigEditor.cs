@@ -20,14 +20,14 @@ public sealed class BongoCatConfigEditor
     private const string ProfileFileName = "petstats-live2d-profile.json";
     private const string ProfileAssetsDirectoryName = "petstats-assets";
 
-    public BongoCatConfigEditor()
+    public BongoCatConfigEditor(string? rootDirectory = null)
     {
-        rootDirectory = FindRootDirectory();
-        configPath = Path.Combine(rootDirectory, "config.json");
-        standardAssetDirectory = Path.Combine(rootDirectory, "img", "standard");
+        this.rootDirectory = rootDirectory ?? FindRootDirectory();
+        configPath = Path.Combine(this.rootDirectory, "config.json");
+        standardAssetDirectory = Path.Combine(this.rootDirectory, "img", "standard");
         standardModelDirectory = Path.Combine(standardAssetDirectory, "cat_model");
         live2DLibraryDirectory = Path.Combine(standardAssetDirectory, "live2d_models");
-        backupDirectory = Path.Combine(rootDirectory, ".petstats_backups");
+        backupDirectory = Path.Combine(this.rootDirectory, ".petstats_backups");
     }
 
     public string RootDirectory => rootDirectory;
@@ -41,8 +41,8 @@ public sealed class BongoCatConfigEditor
         var activeId = ReadActiveLive2DModelId(GetObject(LoadConfig(), "standard"));
         return new[]
         {
-            new BuiltInSkinInfo(PinkSkinId, "粉色暖暖", string.Equals(activeId, PinkSkinId, StringComparison.OrdinalIgnoreCase)),
-            new BuiltInSkinInfo(PurpleSkinId, "紫色暖暖", string.Equals(activeId, PurpleSkinId, StringComparison.OrdinalIgnoreCase))
+            new BuiltInSkinInfo(PinkSkinId, L.Text("粉色暖暖"), string.Equals(activeId, PinkSkinId, StringComparison.OrdinalIgnoreCase)),
+            new BuiltInSkinInfo(PurpleSkinId, L.Text("紫色暖暖"), string.Equals(activeId, PurpleSkinId, StringComparison.OrdinalIgnoreCase))
         }
         .Where(skin => IsValidLive2DModelDirectory(ResolveLive2DModelDirectory(skin.Id)))
         .ToList();
@@ -53,7 +53,7 @@ public sealed class BongoCatConfigEditor
         if (!string.Equals(skinId, PinkSkinId, StringComparison.OrdinalIgnoreCase)
             && !string.Equals(skinId, PurpleSkinId, StringComparison.OrdinalIgnoreCase))
         {
-            throw new ArgumentOutOfRangeException(nameof(skinId), skinId, "未知的内置皮肤。");
+            throw new ArgumentOutOfRangeException(nameof(skinId), skinId, L.Text("未知的内置皮肤。"));
         }
 
         SelectLive2DModel(skinId);
@@ -87,7 +87,7 @@ public sealed class BongoCatConfigEditor
         var texturePath = GetLive2DTexturePath();
         if (string.IsNullOrWhiteSpace(texturePath))
         {
-            throw new FileNotFoundException("找不到当前 Live2D 贴图。");
+            throw new FileNotFoundException(L.Text("找不到当前 Live2D 贴图。"));
         }
 
         return texturePath;
@@ -171,7 +171,7 @@ public sealed class BongoCatConfigEditor
                 continue;
             }
 
-            var name = expression["Name"]?.GetValue<string>() ?? $"Expression {result.Count + 1}";
+            var name = expression["Name"]?.GetValue<string>() ?? L.Format($"表情 {result.Count + 1}");
             var file = expression["File"]?.GetValue<string>() ?? "";
             var summary = ReadExpressionSummary(Path.Combine(standardModelDirectory, file));
             result.Add(new Live2DExpressionInfo(name, file, summary, texturePath));
@@ -243,7 +243,7 @@ public sealed class BongoCatConfigEditor
         var petPath = Path.Combine(rootDirectory, "BongoCatMver.exe");
         if (!File.Exists(petPath))
         {
-            throw new FileNotFoundException("找不到 BongoCatMver.exe。", petPath);
+            throw new FileNotFoundException(L.Text("找不到 BongoCatMver.exe。"), petPath);
         }
 
         var target = Path.GetFullPath(petPath);
@@ -273,16 +273,21 @@ public sealed class BongoCatConfigEditor
                     // Fall through to the actionable error below.
                 }
 
-                throw new InvalidOperationException("检测到另一个 BongoCatMver 实例，但无法关闭。请先从托盘退出旧桌宠后重试。", ex);
+                throw new InvalidOperationException(L.Text("检测到另一个 BongoCatMver 实例，但无法关闭。请先从托盘退出旧桌宠后重试。"), ex);
             }
         }
 
-        Process.Start(new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = petPath,
             WorkingDirectory = rootDirectory,
-            UseShellExecute = true
-        });
+            UseShellExecute = false
+        };
+        // The bundled pet requests elevation in its legacy manifest. It needs no
+        // administrative access, and matching our integrity level lets the
+        // companion maintain silhouette-only pointer interaction.
+        startInfo.Environment["__COMPAT_LAYER"] = "RunAsInvoker";
+        Process.Start(startInfo);
     }
 
     public void StartSteamBongoCat()
@@ -341,12 +346,12 @@ public sealed class BongoCatConfigEditor
     {
         if (!File.Exists(sourcePath))
         {
-            throw new FileNotFoundException("找不到要导入的图片。", sourcePath);
+            throw new FileNotFoundException(L.Text("找不到要导入的图片。"), sourcePath);
         }
 
         if (!string.Equals(Path.GetExtension(sourcePath), ".png", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("目前只支持导入 PNG 图片。");
+            throw new InvalidOperationException(L.Text("目前只支持导入 PNG 图片。"));
         }
 
         var targetPath = GetAssetPath(kind, index);
@@ -364,7 +369,7 @@ public sealed class BongoCatConfigEditor
         var sourceDirectory = GetDefaultStandardModelDirectory();
         if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
         {
-            throw new DirectoryNotFoundException("找不到默认桌宠模型备份。");
+            throw new DirectoryNotFoundException(L.Text("找不到默认桌宠模型备份。"));
         }
 
         BackupDirectoryTree(standardModelDirectory, Path.Combine("img", "standard", "cat_model"));
@@ -437,24 +442,24 @@ public sealed class BongoCatConfigEditor
     {
         if (string.IsNullOrWhiteSpace(modelId))
         {
-            throw new InvalidOperationException("请选择一个要删除的 Live2D 模型。");
+            throw new InvalidOperationException(L.Text("请选择一个要删除的 Live2D 模型。"));
         }
 
         var activeId = ReadActiveLive2DModelId(GetObject(LoadConfig(), "standard"));
         if (string.Equals(modelId, activeId, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("当前正在使用的 Live2D 模型不能删除，请先切换到其他模型。");
+            throw new InvalidOperationException(L.Text("当前正在使用的 Live2D 模型不能删除，请先切换到其他模型。"));
         }
 
         var targetDirectory = Path.Combine(live2DLibraryDirectory, modelId);
         if (!Directory.Exists(targetDirectory))
         {
-            throw new DirectoryNotFoundException("找不到要删除的 Live2D 模型文件夹。");
+            throw new DirectoryNotFoundException(L.Text("找不到要删除的 Live2D 模型文件夹。"));
         }
 
         if (!IsInsideDirectory(targetDirectory, live2DLibraryDirectory))
         {
-            throw new InvalidOperationException("模型目录不在 Live2D 模型库中。");
+            throw new InvalidOperationException(L.Text("模型目录不在 Live2D 模型库中。"));
         }
 
         Directory.Delete(targetDirectory, recursive: true);
@@ -464,7 +469,7 @@ public sealed class BongoCatConfigEditor
     {
         if (string.IsNullOrWhiteSpace(modelId))
         {
-            throw new InvalidOperationException("请选择一个 Live2D 模型。");
+            throw new InvalidOperationException(L.Text("请选择一个 Live2D 模型。"));
         }
 
         var sourceDirectory = ResolveLive2DModelDirectory(modelId);
@@ -537,7 +542,7 @@ public sealed class BongoCatConfigEditor
     {
         if (!File.Exists(packagePath))
         {
-            throw new FileNotFoundException("找不到 Live2D 整包。", packagePath);
+            throw new FileNotFoundException(L.Text("找不到 Live2D 整包。"), packagePath);
         }
 
         Directory.CreateDirectory(live2DLibraryDirectory);
@@ -563,7 +568,7 @@ public sealed class BongoCatConfigEditor
     {
         if (string.IsNullOrWhiteSpace(modelId))
         {
-            throw new InvalidOperationException("请选择一个要导出的 Live2D 模型。");
+            throw new InvalidOperationException(L.Text("请选择一个要导出的 Live2D 模型。"));
         }
 
         if (string.Equals(snapshot.Live2DModelId, modelId, StringComparison.OrdinalIgnoreCase))
@@ -575,7 +580,7 @@ public sealed class BongoCatConfigEditor
         ValidateLive2DModel(sourceDirectory);
         if (IsInsideDirectory(packagePath, sourceDirectory))
         {
-            throw new InvalidOperationException("导出文件不能放在模型目录里面。");
+            throw new InvalidOperationException(L.Text("导出文件不能放在模型目录里面。"));
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(packagePath)!);
@@ -611,11 +616,11 @@ public sealed class BongoCatConfigEditor
     {
         if (!File.Exists(configPath))
         {
-            throw new FileNotFoundException("找不到 config.json。", configPath);
+            throw new FileNotFoundException(L.Text("找不到 config.json。"), configPath);
         }
 
         return JsonNode.Parse(File.ReadAllText(configPath)) as JsonObject
-            ?? throw new InvalidOperationException("config.json 不是有效对象。");
+            ?? throw new InvalidOperationException(L.Text("config.json 不是有效对象。"));
     }
 
     private void SaveConfig(JsonObject root)
@@ -628,7 +633,7 @@ public sealed class BongoCatConfigEditor
         var modelPath = Path.Combine(standardModelDirectory, "cat.model3.json");
         if (!File.Exists(modelPath))
         {
-            return "未找到模型";
+            return L.Text("未找到模型");
         }
 
         try
@@ -725,6 +730,8 @@ public sealed class BongoCatConfigEditor
 
             var texturePath = GetLive2DTexturePath(modelRoot, references);
             var id = Path.GetFileName(directory);
+            if (id == PinkSkinId) name = L.Text("粉色暖暖");
+            if (id == PurpleSkinId) name = L.Text("紫色暖暖");
             return new Live2DModelInfo(id, name, modelRoot, modelPath, texturePath, string.Equals(id, activeId, StringComparison.OrdinalIgnoreCase));
         }
         catch
@@ -958,7 +965,7 @@ public sealed class BongoCatConfigEditor
     {
         if (!Directory.Exists(sourceDirectory))
         {
-            throw new DirectoryNotFoundException("找不到 Live2D 模型文件夹。");
+            throw new DirectoryNotFoundException(L.Text("找不到 Live2D 模型文件夹。"));
         }
 
         if (IsValidLive2DModelDirectory(sourceDirectory))
@@ -978,7 +985,7 @@ public sealed class BongoCatConfigEditor
 
         if (candidates.Count == 0)
         {
-            throw new InvalidOperationException("这个文件夹里没有找到有效的 Live2D 模型。");
+            throw new InvalidOperationException(L.Text("这个文件夹里没有找到有效的 Live2D 模型。"));
         }
 
         return candidates[0];
@@ -998,7 +1005,7 @@ public sealed class BongoCatConfigEditor
 
         if (candidates.Count == 0)
         {
-            throw new InvalidOperationException("整包里没有找到有效的 Live2D 模型。");
+            throw new InvalidOperationException(L.Text("整包里没有找到有效的 Live2D 模型。"));
         }
 
         return candidates[0];
@@ -1183,7 +1190,7 @@ public sealed class BongoCatConfigEditor
     {
         if (!File.Exists(expressionPath))
         {
-            return "找不到表情文件";
+            return L.Text("找不到表情文件");
         }
 
         try
@@ -1191,7 +1198,7 @@ public sealed class BongoCatConfigEditor
             var expression = JsonNode.Parse(File.ReadAllText(expressionPath)) as JsonObject;
             if (expression?["Parameters"] is not JsonArray parameters || parameters.Count == 0)
             {
-                return "默认表情";
+                return L.Text("默认表情");
             }
 
             var rows = parameters
@@ -1442,28 +1449,28 @@ public sealed class BongoCatConfigEditor
     {
         if (!Directory.Exists(sourceDirectory))
         {
-            throw new DirectoryNotFoundException("找不到 Live2D 模型文件夹。");
+            throw new DirectoryNotFoundException(L.Text("找不到 Live2D 模型文件夹。"));
         }
 
         var modelFiles = Directory.GetFiles(sourceDirectory, "*.model3.json", SearchOption.TopDirectoryOnly);
         if (modelFiles.Length != 1)
         {
-            throw new InvalidOperationException("请选择只包含一个 .model3.json 的 Live2D 模型根目录。");
+            throw new InvalidOperationException(L.Text("请选择只包含一个 .model3.json 的 Live2D 模型根目录。"));
         }
 
         var modelRoot = JsonNode.Parse(File.ReadAllText(modelFiles[0])) as JsonObject
-            ?? throw new InvalidOperationException("model3.json 不是有效 JSON。");
+            ?? throw new InvalidOperationException(L.Text("model3.json 不是有效 JSON。"));
         var references = modelRoot["FileReferences"] as JsonObject
-            ?? throw new InvalidOperationException("model3.json 缺少 FileReferences。");
+            ?? throw new InvalidOperationException(L.Text("model3.json 缺少 FileReferences。"));
         var moc = references["Moc"]?.GetValue<string>();
         if (string.IsNullOrWhiteSpace(moc) || !File.Exists(Path.Combine(sourceDirectory, moc)))
         {
-            throw new InvalidOperationException("Live2D 模型缺少有效的 Moc 文件。");
+            throw new InvalidOperationException(L.Text("Live2D 模型缺少有效的 Moc 文件。"));
         }
 
         if (references["Textures"] is not JsonArray textures || textures.Count == 0)
         {
-            throw new InvalidOperationException("Live2D 模型缺少贴图列表。");
+            throw new InvalidOperationException(L.Text("Live2D 模型缺少贴图列表。"));
         }
 
         foreach (var texture in textures)
@@ -1471,7 +1478,7 @@ public sealed class BongoCatConfigEditor
             var texturePath = texture?.GetValue<string>();
             if (string.IsNullOrWhiteSpace(texturePath) || !File.Exists(Path.Combine(sourceDirectory, texturePath)))
             {
-                throw new InvalidOperationException($"Live2D 贴图不存在：{texturePath}");
+                throw new InvalidOperationException(L.Format($"Live2D 贴图不存在：{texturePath}"));
             }
         }
     }
@@ -1534,7 +1541,7 @@ public sealed record Live2DModelInfo(string Id, string Name, string Directory, s
 {
     public override string ToString()
     {
-        return IsActive ? $"{Name}（当前）" : Name;
+        return IsActive ? L.Format($"{Name}（当前）") : Name;
     }
 }
 

@@ -56,6 +56,9 @@ $rootFiles = @(
     "msvcp140.dll",
     "openal32.dll",
     "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LauncherMessages.ps1",
     "sfml-audio-2.dll",
     "sfml-graphics-2.dll",
     "sfml-network-2.dll",
@@ -76,7 +79,7 @@ foreach ($relativePath in $rootFiles) {
     Copy-Item -LiteralPath $source -Destination $packageDirectory
 }
 
-foreach ($directoryName in @("img", "Resources")) {
+foreach ($directoryName in @("img", "Resources", "docs")) {
     $source = Join-Path $repositoryRoot $directoryName
     if (-not [IO.Directory]::Exists($source)) {
         throw "Required release directory is missing: $directoryName"
@@ -88,10 +91,15 @@ foreach ($directoryName in @("img", "Resources")) {
 $overlayDirectory = Join-Path $packageDirectory "PetStatsOverlay"
 New-Item -ItemType Directory -Path $overlayDirectory -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $publishDirectory "PetStatsOverlay.exe") -Destination $overlayDirectory
+$licenseDirectory = Join-Path $overlayDirectory "Data"
+New-Item -ItemType Directory -Path $licenseDirectory -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $repositoryRoot "PetStatsOverlay/Data/LiteLLM-LICENSE.txt") -Destination $licenseDirectory
 
 Compress-Archive -LiteralPath $packageDirectory -DestinationPath $archivePath -CompressionLevel Optimal
 
 $archive = Get-Item -LiteralPath $archivePath
+$checksum = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+[IO.File]::WriteAllText("$archivePath.sha256", "$checksum  $($archive.Name)`n", [Text.UTF8Encoding]::new($false))
 $archiveSizeMb = [Math]::Round($archive.Length / 1MB, 2)
 [IO.Directory]::Delete($publishDirectory, $true)
 [IO.Directory]::Delete($packageDirectory, $true)

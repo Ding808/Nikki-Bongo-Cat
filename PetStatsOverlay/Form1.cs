@@ -50,10 +50,14 @@ public sealed partial class Form1 : Form
     private readonly Label typingValueLabel = new();
     private readonly Label mouseValueLabel = new();
     private readonly Label providerTitleLabel = new();
+    private readonly Panel modelRowsPanel = new() { AutoScroll = true, BackColor = Color.Transparent };
     private readonly List<Label> providerLineLabels = new();
     private readonly List<Label> providerPercentLabels = new();
     private readonly Label updatedLabel = new();
     private readonly Button advancedButton = new();
+    private readonly Button languageButton = new();
+    private readonly Label pricingStatusLabel = new();
+    private readonly ToolTip toolTip = new();
     private readonly ComboBox buttonMetricCombo = new();
     private readonly CheckBox alwaysVisibleCheckBox = new();
     private readonly Button customizePetButton = new();
@@ -74,19 +78,27 @@ public sealed partial class Form1 : Form
     private bool entryVisible;
     private bool overlayClickThrough;
     private double currentUiScale = 1D;
+    private readonly bool enableRuntime;
+    private double panelFontScale = 1D;
     private DateTime suppressPetMissingCloseUntil = DateTime.MinValue;
 
-    public Form1()
+    public Form1(StatsStore? statsStore = null, bool startTimers = true)
     {
         InitializeComponent();
 
-        store = new StatsStore();
+        store = statsStore ?? new StatsStore();
+        enableRuntime = startTimers;
+        L.SetLanguage(store.Settings.CompanionUi.Language);
         tokenLogReader = new TokenLogReader(store.Settings, store.DataDirectory);
         inputCounter = new KeyboardCounter();
         inputCounter.TextKeyPressed += (_, _) => Interlocked.Increment(ref pendingTypingCount);
         inputCounter.MouseClicked += (_, _) => Interlocked.Increment(ref pendingMouseClickCount);
         inputCounter.LockRequested += (_, _) => SetPetLock(true);
         inputCounter.UnlockRequested += (_, _) => SetPetLock(false);
+        inputCounter.CustomizeRequested += (_, _) =>
+        {
+            if (IsHandleCreated && !IsDisposed) BeginInvoke(OpenCustomizationForm);
+        };
 
         refreshTimer = new System.Windows.Forms.Timer { Interval = 60_000 };
         refreshTimer.Tick += (_, _) => BeginUsageRefresh();
@@ -127,6 +139,7 @@ public sealed partial class Form1 : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        if (!enableRuntime) return;
         StartRuntimeTimers();
         BeginUsageRefresh();
         FollowPet();
@@ -134,7 +147,7 @@ public sealed partial class Form1 : Form
 
     private void StartRuntimeTimers()
     {
-        if (runtimeTimersStarted)
+        if (!enableRuntime || runtimeTimersStarted)
         {
             return;
         }
@@ -156,15 +169,17 @@ public sealed partial class Form1 : Form
         FlushInputToMemory();
         SaveInputIfNeeded(force: true);
         inputCounter.Dispose();
+        petController.Dispose();
         customizationForm?.Close();
         trayIcon.Visible = false;
         trayIcon.Dispose();
+        toolTip.Dispose();
         base.OnFormClosing(e);
     }
 
     private void ConfigureWindow()
     {
-        Text = "Today Companion";
+        Text = L.Text("今日陪伴");
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
         ShowInTaskbar = false;
@@ -175,8 +190,14 @@ public sealed partial class Form1 : Form
         DoubleBuffered = true;
         Click += ExpandFromClick;
 
+        ConfigureContextMenu();
+        if (enableRuntime) ConfigureTrayIcon();
+    }
+
+    private void ConfigureContextMenu()
+    {
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Reset today", null, (_, _) =>
+        menu.Items.Add(L.Text("重置今日"), null, (_, _) =>
         {
             Interlocked.Exchange(ref pendingTypingCount, 0);
             Interlocked.Exchange(ref pendingMouseClickCount, 0);
@@ -184,30 +205,33 @@ public sealed partial class Form1 : Form
             hasUnsavedInput = false;
             UpdateView(cachedUsage);
         });
-        menu.Items.Add("Lock pet (Num -)", null, (_, _) => SetPetLock(true));
-        menu.Items.Add("Unlock pet (Num +)", null, (_, _) => SetPetLock(false));
+        menu.Items.Add(L.Pick("Lock pet (Num −)", "锁定桌宠（小键盘 −）"), null, (_, _) => SetPetLock(true));
+        menu.Items.Add(L.Pick("Unlock pet (Num +)", "解锁桌宠（小键盘 +）"), null, (_, _) => SetPetLock(false));
+        menu.Items.Add(CreateLanguageMenu());
+        menu.Items.Add(CreatePanelSizeMenu());
         menu.Items.Add(CreateSkinMenu());
-        menu.Items.Add("Customize pet", null, (_, _) => OpenCustomizationForm());
-        menu.Items.Add("Open settings", null, (_, _) => Process.Start(new ProcessStartInfo
+        menu.Items.Add(L.Text("自定义桌宠"), null, (_, _) => OpenCustomizationForm());
+        menu.Items.Add(L.Text("打开设置"), null, (_, _) => Process.Start(new ProcessStartInfo
         {
             FileName = store.SettingsPath,
             UseShellExecute = true
         }));
-        menu.Items.Add("Open data folder", null, (_, _) => Process.Start(new ProcessStartInfo
+        menu.Items.Add(L.Text("打开数据文件夹"), null, (_, _) => Process.Start(new ProcessStartInfo
         {
             FileName = store.DataDirectory,
             UseShellExecute = true
         }));
-        menu.Items.Add("Exit", null, (_, _) => Close());
+        menu.Items.Add(L.Text("退出统计浮窗"), null, (_, _) => Close());
+        var previous = ContextMenuStrip;
         ContextMenuStrip = menu;
-        ConfigureTrayIcon();
+        previous?.Dispose();
     }
 
     private void ConfigureTrayIcon()
     {
         var petPath = Path.Combine(bongoConfig.RootDirectory, "BongoCatMver.exe");
         trayIcon.Icon = File.Exists(petPath) ? Icon.ExtractAssociatedIcon(petPath) ?? SystemIcons.Application : SystemIcons.Application;
-        trayIcon.Text = "Bongo Cat Mver 自定义工具";
+        trayIcon.Text = L.Text("Bongo Cat Mver 自定义工具");
         trayIcon.Visible = true;
         trayIcon.DoubleClick += (_, _) =>
         {
@@ -215,17 +239,27 @@ public sealed partial class Form1 : Form
             ShowStatsWindow();
         };
 
+        ConfigureTrayMenu();
+    }
+
+    private void ConfigureTrayMenu()
+    {
+        trayIcon.Text = "Nikki Bongo Cat";
         var menu = new ContextMenuStrip();
-        menu.Items.Add("打开统计面板", null, (_, _) =>
+        menu.Items.Add(L.Text("打开统计面板"), null, (_, _) =>
         {
             SetExpanded(true);
             ShowStatsWindow();
         });
         menu.Items.Add(CreateSkinMenu());
-        menu.Items.Add("自定义桌宠", null, (_, _) => OpenCustomizationForm());
-        menu.Items.Add("重启桌宠", null, (_, _) => RestartPetAndShowOverlay());
-        menu.Items.Add("退出统计浮窗", null, (_, _) => Close());
+        menu.Items.Add(CreateLanguageMenu());
+        menu.Items.Add(CreatePanelSizeMenu());
+        menu.Items.Add(L.Text("自定义桌宠"), null, (_, _) => OpenCustomizationForm());
+        menu.Items.Add(L.Text("重启桌宠"), null, (_, _) => RestartPetAndShowOverlay());
+        menu.Items.Add(L.Text("退出统计浮窗"), null, (_, _) => Close());
+        var previous = trayIcon.ContextMenuStrip;
         trayIcon.ContextMenuStrip = menu;
+        previous?.Dispose();
     }
 
     private void BuildUi()
@@ -268,11 +302,11 @@ public sealed partial class Form1 : Form
             label.ForeColor = Color.FromArgb(150, 120, 135);
             label.TextAlign = ContentAlignment.MiddleCenter;
         }
-        typingTitleLabel.Text = "\u2328\ufe0f \u6253\u5b57\u6b21\u6570";
-        mouseTitleLabel.Text = "\ud83d\uddb1\ufe0f \u70b9\u51fb\u6b21\u6570";
-        callsTitleLabel.Text = "\ud83d\udcac \u5bf9\u8bdd\u6b21\u6570";
-        tokenTitleLabel.Text = "\ud83d\udce6 Token \u6d88\u8017";
-        costTitleLabel.Text = "\ud83d\udc9c \u82b1\u8d39";
+        typingTitleLabel.Text = L.Text("\u2328\ufe0f \u6253\u5b57\u6b21\u6570");
+        mouseTitleLabel.Text = L.Text("\ud83d\uddb1\ufe0f \u70b9\u51fb\u6b21\u6570");
+        callsTitleLabel.Text = L.Text("\ud83d\udcac \u5bf9\u8bdd\u6b21\u6570");
+        tokenTitleLabel.Text = L.Text("📦 令牌消耗");
+        costTitleLabel.Text = L.Text("\ud83d\udc9c \u82b1\u8d39");
 
         foreach (var label in new[] { callsValueLabel, tokenValueLabel, costValueLabel, typingValueLabel, mouseValueLabel })
         {
@@ -281,7 +315,7 @@ public sealed partial class Form1 : Form
             label.TextAlign = ContentAlignment.MiddleCenter;
         }
 
-        callsUnitLabel.Text = "\u6b21";
+        callsUnitLabel.Text = "";
         callsUnitLabel.Font = new Font(Font.FontFamily, 8.5F, FontStyle.Regular, GraphicsUnit.Point);
         callsUnitLabel.ForeColor = Color.FromArgb(150, 120, 135);
         callsUnitLabel.TextAlign = ContentAlignment.BottomLeft;
@@ -294,7 +328,7 @@ public sealed partial class Form1 : Form
         updatedLabel.TextAlign = ContentAlignment.MiddleLeft;
 
         // The "\u9ad8\u7ea7\u8be6\u60c5" pill collects every secondary control/action.
-        advancedButton.Text = "\u9ad8\u7ea7\u8be6\u60c5";
+        advancedButton.Text = L.Text("\u9ad8\u7ea7\u8be6\u60c5");
         advancedButton.FlatStyle = FlatStyle.Flat;
         advancedButton.BackColor = Color.White;
         advancedButton.ForeColor = Color.FromArgb(224, 110, 145);
@@ -303,18 +337,39 @@ public sealed partial class Form1 : Form
         advancedButton.Font = new Font(Font.FontFamily, 8.5F, FontStyle.Regular, GraphicsUnit.Point);
         advancedButton.Cursor = Cursors.Hand;
         advancedButton.Click += (_, _) => ShowAdvancedMenu();
+        ConfigureSoftButton(languageButton, L.Pick("EN", "中"));
+        toolTip.SetToolTip(languageButton, L.Pick("Language", "语言"));
+        languageButton.Font = new Font(Font.FontFamily, 8.5F);
+        languageButton.Click += (_, _) =>
+        {
+            var menu = new ContextMenuStrip();
+            menu.Items.Add(CreateLanguageMenu());
+            menu.Show(languageButton, new Point(0, languageButton.Height));
+        };
+        pricingStatusLabel.ForeColor = Color.FromArgb(178, 126, 148);
+        pricingStatusLabel.BackColor = Color.Transparent;
+        modelRowsPanel.Paint += (_, e) =>
+        {
+            for (var index = 0; index < providerRowsForDisplay.Count; index++)
+            {
+                var rect = ScaleRect(178, index * ModelRowSpacing + 4, 130, 10);
+                rect.Offset(modelRowsPanel.AutoScrollPosition);
+                DrawUsageBar(e.Graphics, rect, providerRowsForDisplay[index].Percent);
+            }
+        };
+        modelRowsPanel.Scroll += (_, _) => modelRowsPanel.Invalidate();
 
         // Secondary controls are kept alive (state still bound) but not shown on the panel;
         // they are surfaced through the advanced menu instead.
         buttonMetricCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         buttonMetricCombo.Items.AddRange(
         [
-            new MetricOption("companion", "\u4eca\u65e5\u966a\u4f34"),
-            new MetricOption("tokens", "Token"),
-            new MetricOption("typing", "\u6253\u5b57"),
-            new MetricOption("mouse", "\u70b9\u51fb"),
-            new MetricOption("cost", "\u82b1\u8d39"),
-            new MetricOption("calls", "\u5bf9\u8bdd")
+            new MetricOption("companion", L.Text("\u4eca\u65e5\u966a\u4f34")),
+            new MetricOption("tokens", L.Text("令牌")),
+            new MetricOption("typing", L.Text("\u6253\u5b57")),
+            new MetricOption("mouse", L.Text("\u70b9\u51fb")),
+            new MetricOption("cost", L.Text("\u82b1\u8d39")),
+            new MetricOption("calls", L.Text("\u5bf9\u8bdd"))
         ]);
         buttonMetricCombo.SelectedIndexChanged += (_, _) =>
         {
@@ -343,7 +398,6 @@ public sealed partial class Form1 : Form
         Controls.AddRange(
         [
             titleLabel,
-            statusLabel,
             closeLabel,
             typingTitleLabel,
             mouseTitleLabel,
@@ -358,7 +412,10 @@ public sealed partial class Form1 : Form
             costValueLabel,
             providerTitleLabel,
             updatedLabel,
-            advancedButton
+            advancedButton,
+            languageButton,
+            pricingStatusLabel,
+            modelRowsPanel
         ]);
     }
 
@@ -370,8 +427,8 @@ public sealed partial class Form1 : Form
             var percentLabel = CreateProviderPercentLabel();
             providerLineLabels.Add(lineLabel);
             providerPercentLabels.Add(percentLabel);
-            Controls.Add(lineLabel);
-            Controls.Add(percentLabel);
+            modelRowsPanel.Controls.Add(lineLabel);
+            modelRowsPanel.Controls.Add(percentLabel);
         }
     }
 
@@ -434,7 +491,8 @@ public sealed partial class Form1 : Form
         titleLabel.TextAlign = ContentAlignment.MiddleLeft;
 
         // Header: 🌸 今日陪伴 ✨ ........ ×
-        SetBoundsScaled(titleLabel, 18, 14, 300, 28);
+        SetBoundsScaled(titleLabel, 18, 14, 316, 28);
+        SetBoundsScaled(languageButton, 338, 14, 40, 24);
         SetBoundsScaled(closeLabel, 384, 12, 26, 26);
         statusLabel.Visible = false;
         subtitleLabel.Visible = false;
@@ -450,7 +508,7 @@ public sealed partial class Form1 : Form
         SetBoundsScaled(tokenTitleLabel, 145, 134, 129, 20);
         SetBoundsScaled(costTitleLabel, 274, 134, 130, 20);
 
-        SetBoundsScaled(callsValueLabel, 24, 158, 74, 38);
+        SetBoundsScaled(callsValueLabel, 16, 158, 129, 38);
         SetBoundsScaled(callsUnitLabel, 100, 170, 24, 24);
         SetBoundsScaled(tokenValueLabel, 145, 158, 129, 38);
         SetBoundsScaled(costValueLabel, 274, 158, 130, 38);
@@ -460,8 +518,14 @@ public sealed partial class Form1 : Form
         providerTitleLabel.Visible = modelRowCount > 0;
         if (modelRowCount > 0)
         {
-            SetBoundsScaled(providerTitleLabel, 18, ModelSectionTitleY, 220, 20);
+            SetBoundsScaled(providerTitleLabel, 18, ModelSectionTitleY, 380, 20);
         }
+
+        var previousScroll = modelRowsPanel.AutoScrollPosition;
+        modelRowsPanel.AutoScrollPosition = Point.Empty;
+        modelRowsPanel.Visible = modelRowCount > 0;
+        SetBoundsScaled(modelRowsPanel, 18, ModelRowTopY, 386, GetVisibleModelRowCount() * ModelRowSpacing);
+        modelRowsPanel.AutoScrollMinSize = new Size(0, Scale(modelRowCount * ModelRowSpacing));
 
         for (var index = 0; index < providerLineLabels.Count; index++)
         {
@@ -473,15 +537,19 @@ public sealed partial class Form1 : Form
                 continue;
             }
 
-            var rowY = GetModelRowY(index);
-            SetBoundsScaled(providerLineLabels[index], 20, rowY, 168, 18);
-            SetBoundsScaled(providerPercentLabels[index], 356, rowY - 2, 48, 18);
+            var rowY = index * ModelRowSpacing;
+            SetBoundsScaled(providerLineLabels[index], 2, rowY, 170, 22);
+            SetBoundsScaled(providerPercentLabels[index], 314, rowY, 44, 22);
         }
+
+        modelRowsPanel.AutoScrollPosition = new Point(-previousScroll.X, -previousScroll.Y);
 
         // Footer.
         var footerY = GetFooterY();
         SetBoundsScaled(updatedLabel, 20, footerY, 190, 24);
         SetBoundsScaled(advancedButton, 300, footerY - 4, 104, 30);
+        SetBoundsScaled(pricingStatusLabel, 20, footerY + 25, 380, 24);
+        pricingStatusLabel.Visible = cachedUsage.UnpricedRecordCount > 0;
         ApplyPillRegion(advancedButton);
 
         typingTitleLabel.Visible = true;
@@ -499,6 +567,7 @@ public sealed partial class Form1 : Form
         closeLabel.Visible = true;
         updatedLabel.Visible = true;
         advancedButton.Visible = true;
+        languageButton.Visible = true;
     }
 
     private void UpdateScaledSizeAndLayout(Rectangle? petRect)
@@ -508,34 +577,41 @@ public sealed partial class Form1 : Form
 
     private void SetFixedSizeAndLayout()
     {
+        if (store is null) return;
         var dpiScale = Math.Clamp(DeviceDpi / (double)DpiBaseline, 1D, 3D);
+        var requestedScale = expanded ? Math.Clamp(store.Settings.CompanionUi.PanelScale, 0.65D, 1.75D) : 1D;
+        var area = Screen.FromPoint(Location).WorkingArea;
+        var totalScale = Math.Min(dpiScale * requestedScale, (area.Width - 16D) / (expanded ? ExpandedBaseWidth : CollapsedBaseSize.Width));
+        var previousScale = currentUiScale;
+        currentUiScale = Math.Max(0.4D, totalScale);
+        panelFontScale = currentUiScale / dpiScale;
         var baseSize = expanded ? GetExpandedBaseSize() : CollapsedBaseSize;
-        var nextSize = ScaleSize(baseSize, dpiScale);
-
-        if (ClientSize != nextSize || Math.Abs(currentUiScale - dpiScale) > 0.01D)
+        var nextSize = ScaleSize(baseSize, currentUiScale);
+        if (ClientSize != nextSize || Math.Abs(previousScale - currentUiScale) > 0.001D)
         {
-            currentUiScale = dpiScale;
             ClientSize = nextSize;
             LayoutUi();
         }
-        else
-        {
-            currentUiScale = dpiScale;
-        }
-
         ApplyWindowRegion();
     }
 
     private Size GetExpandedBaseSize()
     {
-        return new Size(ExpandedBaseWidth, GetFooterY() + FooterBottomPadding);
+        return new Size(ExpandedBaseWidth, GetFooterY() + FooterBottomPadding + (cachedUsage.UnpricedRecordCount > 0 ? 25 : 0));
+    }
+
+    private int GetVisibleModelRowCount()
+    {
+        var availableHeight = Screen.FromPoint(Location).WorkingArea.Height / currentUiScale;
+        var rows = Math.Max(1, (int)((availableHeight - 350) / ModelRowSpacing));
+        return Math.Min(providerRowsForDisplay.Count, Math.Min(10, rows));
     }
 
     private int GetFooterY()
     {
         return providerRowsForDisplay.Count == 0
             ? 202 + FooterGapWithoutModelRows
-            : ModelRowTopY + providerRowsForDisplay.Count * ModelRowSpacing + FooterGapAfterModelRows;
+            : ModelRowTopY + GetVisibleModelRowCount() * ModelRowSpacing + FooterGapAfterModelRows;
     }
 
     private static int GetModelRowY(int index)
@@ -587,6 +663,8 @@ public sealed partial class Form1 : Form
         providerTitleLabel.Font = ScaledFont(9.5F, FontStyle.Bold);
         updatedLabel.Font = ScaledFont(8.5F, FontStyle.Regular);
         advancedButton.Font = ScaledFont(8.5F, FontStyle.Regular);
+        languageButton.Font = ScaledFont(8.5F, FontStyle.Regular);
+        pricingStatusLabel.Font = ScaledFont(8F, FontStyle.Regular);
 
         foreach (var label in new[] { callsTitleLabel, tokenTitleLabel, costTitleLabel, typingTitleLabel, mouseTitleLabel })
         {
@@ -615,7 +693,7 @@ public sealed partial class Form1 : Form
     {
         // Point-sized fonts already account for monitor DPI. Only bounds and
         // drawing coordinates use currentUiScale, otherwise text is scaled twice.
-        return new Font(Font.FontFamily, Math.Max(6F, size), style, GraphicsUnit.Point);
+        return new Font(Font.FontFamily, Math.Max(5F, size * (float)panelFontScale), style, GraphicsUnit.Point);
     }
 
     private void SetBoundsScaled(Control control, int x, int y, int width, int height)
@@ -625,8 +703,8 @@ public sealed partial class Form1 : Form
 
     private void ConfigurePetControls()
     {
-        ConfigureSoftButton(customizePetButton, "自定义");
-        ConfigureSoftButton(restartPetButton, "\u91cd\u542f\u684c\u5ba0");
+        ConfigureSoftButton(customizePetButton, L.Text("自定义"));
+        ConfigureSoftButton(restartPetButton, L.Text("\u91cd\u542f\u684c\u5ba0"));
 
         customizePetButton.Click += (_, _) => OpenCustomizationForm();
         restartPetButton.Click += (_, _) => RestartPetAndShowOverlay();
@@ -651,7 +729,7 @@ public sealed partial class Form1 : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.ToString(), "自定义桌宠打开失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            AppDialog.Show(L.Error(ex), L.Text("自定义桌宠打开失败"), MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -706,7 +784,7 @@ public sealed partial class Form1 : Form
 
     private ToolStripMenuItem CreateSkinMenu()
     {
-        var skinMenu = new ToolStripMenuItem("切换皮肤");
+        var skinMenu = new ToolStripMenuItem(L.Text("切换皮肤"));
         foreach (var skin in bongoConfig.LoadBuiltInSkins())
         {
             var skinItem = new ToolStripMenuItem(skin.Name)
@@ -732,7 +810,7 @@ public sealed partial class Form1 : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "切换皮肤失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            AppDialog.Show(L.Error(ex), L.Text("切换皮肤失败"), MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -776,6 +854,98 @@ public sealed partial class Form1 : Form
         button.Cursor = Cursors.Hand;
     }
 
+    private ToolStripMenuItem CreateLanguageMenu()
+    {
+        var menu = new ToolStripMenuItem(L.Pick("Language", "语言"));
+        foreach (var (code, label) in new[] { ("en", L.Pick("English", "英语")), ("zh", L.Pick("Chinese", "中文")) })
+        {
+            var item = new ToolStripMenuItem(label) { Checked = L.Language == code };
+            item.Click += (_, _) => SetLanguage(code);
+            menu.DropDownItems.Add(item);
+        }
+        return menu;
+    }
+
+    private void SetLanguage(string language)
+    {
+        L.SetLanguage(language);
+        store.Settings.CompanionUi.Language = L.Language;
+        store.SaveSettings();
+        L.RefreshControls(this);
+        languageButton.Text = L.Pick("EN", "中");
+        toolTip.SetToolTip(languageButton, L.Pick("Language", "语言"));
+        ConfigureContextMenu();
+        if (enableRuntime) ConfigureTrayMenu();
+        customizationForm?.ApplyLanguage();
+        UpdateView(cachedUsage);
+        LayoutUi();
+    }
+
+    private ToolStripMenuItem CreatePanelSizeMenu()
+    {
+        var menu = new ToolStripMenuItem(L.Pick("Panel size", "面板大小"));
+        foreach (var percent in new[] { 65, 80, 100, 125, 150, 175 })
+        {
+            var item = new ToolStripMenuItem($"{percent}%")
+            {
+                Checked = Math.Abs(store.Settings.CompanionUi.PanelScale * 100 - percent) < 0.5
+            };
+            item.Click += (_, _) => SetPanelScale(percent / 100D);
+            menu.DropDownItems.Add(item);
+        }
+        menu.DropDownItems.Add(new ToolStripSeparator());
+        menu.DropDownItems.Add(L.Pick("Custom size…", "自定义大小…"), null, (_, _) => ShowPanelSizeDialog());
+        return menu;
+    }
+
+    private void SetPanelScale(double scale)
+    {
+        store.Settings.CompanionUi.PanelScale = Math.Clamp(scale, 0.65D, 1.75D);
+        store.SaveSettings();
+        SetFixedSizeAndLayout();
+        LayoutUi();
+        FollowPet();
+        Invalidate();
+    }
+
+    private void ShowPanelSizeDialog()
+    {
+        using var dialog = new Form
+        {
+            Text = L.Pick("Panel size", "面板大小"),
+            ClientSize = new Size(370, 168),
+            AutoScaleMode = AutoScaleMode.Dpi,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            StartPosition = FormStartPosition.CenterScreen,
+            BackColor = BackColor,
+            ForeColor = ForeColor,
+            Font = Font,
+            TopMost = true
+        };
+        dialog.Controls.Add(new Label
+        {
+            Text = L.Pick("Scale the whole statistics panel (65–175%).", "缩放整个统计面板（65–175%）。"),
+            AutoSize = false,
+            Bounds = new Rectangle(18, 16, 334, 36)
+        });
+        var value = new NumericUpDown
+        {
+            Minimum = 65, Maximum = 175, Increment = 5,
+            Value = (decimal)Math.Clamp(store.Settings.CompanionUi.PanelScale * 100, 65, 175),
+            Bounds = new Rectangle(18, 60, 100, 28)
+        };
+        dialog.Controls.Add(value);
+        dialog.Controls.Add(new Label { Text = "%", Bounds = new Rectangle(124, 63, 30, 24) });
+        var apply = new Button { Text = L.Pick("Apply", "应用"), DialogResult = DialogResult.OK, Bounds = new Rectangle(154, 116, 94, 32) };
+        var cancel = new Button { Text = L.Pick("Cancel", "取消"), DialogResult = DialogResult.Cancel, Bounds = new Rectangle(258, 116, 94, 32) };
+        dialog.Controls.AddRange([apply, cancel]);
+        dialog.AcceptButton = apply;
+        dialog.CancelButton = cancel;
+        if (dialog.ShowDialog(this) == DialogResult.OK) SetPanelScale((double)value.Value / 100D);
+    }
+
     private void ShowAdvancedMenu()
     {
         var menu = new ContextMenuStrip
@@ -788,8 +958,12 @@ public sealed partial class Form1 : Form
             Padding = new Padding(4)
         };
 
+        menu.Items.Add(CreateLanguageMenu());
+        menu.Items.Add(CreatePanelSizeMenu());
+        menu.Items.Add(new ToolStripSeparator());
+
         // Always-visible toggle.
-        var alwaysItem = new ToolStripMenuItem("常驻入口")
+        var alwaysItem = new ToolStripMenuItem(L.Text("常驻入口"))
         {
             CheckOnClick = true,
             Checked = store.Settings.CompanionUi.ButtonAlwaysVisible
@@ -807,7 +981,7 @@ public sealed partial class Form1 : Form
         menu.Items.Add(alwaysItem);
 
         // Collapsed-pill display metric.
-        var metricItem = new ToolStripMenuItem("浮窗显示指标");
+        var metricItem = new ToolStripMenuItem(L.Text("浮窗显示指标"));
         foreach (var item in buttonMetricCombo.Items)
         {
             if (item is not MetricOption option)
@@ -815,7 +989,7 @@ public sealed partial class Form1 : Form
                 continue;
             }
 
-            var child = new ToolStripMenuItem(option.Label)
+            var child = new ToolStripMenuItem(L.Retranslate(option.Label))
             {
                 Checked = string.Equals(option.Key, store.Settings.CompanionUi.ButtonMetric, StringComparison.OrdinalIgnoreCase)
             };
@@ -832,11 +1006,11 @@ public sealed partial class Form1 : Form
         menu.Items.Add(new ToolStripSeparator());
 
         menu.Items.Add(CreateSkinMenu());
-        menu.Items.Add("自定义桌宠", null, (_, _) => OpenCustomizationForm());
-        menu.Items.Add("重启桌宠", null, (_, _) => RestartPetAndShowOverlay());
+        menu.Items.Add(L.Text("自定义桌宠"), null, (_, _) => OpenCustomizationForm());
+        menu.Items.Add(L.Text("重启桌宠"), null, (_, _) => RestartPetAndShowOverlay());
         menu.Items.Add(new ToolStripSeparator());
 
-        menu.Items.Add("重置今日", null, (_, _) =>
+        menu.Items.Add(L.Text("重置今日"), null, (_, _) =>
         {
             Interlocked.Exchange(ref pendingTypingCount, 0);
             Interlocked.Exchange(ref pendingMouseClickCount, 0);
@@ -844,19 +1018,19 @@ public sealed partial class Form1 : Form
             hasUnsavedInput = false;
             UpdateView(cachedUsage);
         });
-        menu.Items.Add(petController.IsLocked ? "解锁桌宠" : "锁定桌宠", null, (_, _) => SetPetLock(!petController.IsLocked));
-        menu.Items.Add("打开设置", null, (_, _) => Process.Start(new ProcessStartInfo
+        menu.Items.Add(petController.IsLocked ? L.Text("解锁桌宠") : L.Text("锁定桌宠"), null, (_, _) => SetPetLock(!petController.IsLocked));
+        menu.Items.Add(L.Text("打开设置"), null, (_, _) => Process.Start(new ProcessStartInfo
         {
             FileName = store.SettingsPath,
             UseShellExecute = true
         }));
-        menu.Items.Add("打开数据文件夹", null, (_, _) => Process.Start(new ProcessStartInfo
+        menu.Items.Add(L.Text("打开数据文件夹"), null, (_, _) => Process.Start(new ProcessStartInfo
         {
             FileName = store.DataDirectory,
             UseShellExecute = true
         }));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("退出统计浮窗", null, (_, _) => Close());
+        menu.Items.Add(L.Text("退出统计浮窗"), null, (_, _) => Close());
 
         // Pop up above the pill so it does not cover the panel.
         menu.Show(advancedButton, new Point(0, -menu.GetPreferredSize(Size.Empty).Height));
@@ -894,29 +1068,36 @@ public sealed partial class Form1 : Form
 
     private void UpdateView(DailyUsage usage)
     {
+        cachedUsage = usage;
         var providerRows = GetProviderRows(usage).ToList();
         var providerRowCountChanged = providerRows.Count != providerRowsForDisplay.Count;
         providerRowsForDisplay = providerRows;
         EnsureProviderRowLabels(providerRowsForDisplay.Count);
-        if (expanded && providerRowCountChanged)
+        if (expanded)
         {
             SetFixedSizeAndLayout();
+            if (providerRowCountChanged) LayoutUi();
         }
 
-        titleLabel.Text = expanded ? "\ud83c\udf38 \u4eca\u65e5\u966a\u4f34 \u2728" : GetButtonText(usage);
-        statusLabel.Text = petController.IsLocked ? "\u5df2\u9501\u5b9a" : "\u53ef\u4ea4\u4e92";
+        titleLabel.Text = expanded ? L.Text("\ud83c\udf38 \u4eca\u65e5\u966a\u4f34 \u2728") : GetButtonText(usage);
+        statusLabel.Text = "";
+        statusLabel.Visible = false;
         callsValueLabel.Text = $"{usage.RecordCount:N0}";
         tokenValueLabel.Text = FormatTokens(usage.TotalTokens);
-        costValueLabel.Text = FormatMoney(usage.EstimatedCost);
+        costValueLabel.Text = FormatUsageCost(usage);
+        pricingStatusLabel.Text = L.Pick($"{usage.UnpricedRecordCount:N0} unpriced records · cost incomplete", $"{usage.UnpricedRecordCount:N0} 条记录缺少价格 · 花费统计不完整");
+        toolTip.SetToolTip(costValueLabel, L.Pick("Estimated API-equivalent cost in USD, not a subscription bill. Pricing may be incomplete.", "按 API 单价估算的美元金额，并非订阅账单；部分模型可能缺少价格。"));
+        pricingStatusLabel.Visible = expanded && usage.UnpricedRecordCount > 0;
+        modelRowsPanel.Invalidate();
         typingValueLabel.Text = $"{store.Today.TypingCount:N0}";
         mouseValueLabel.Text = $"{store.Today.MouseClickCount:N0}";
-        providerTitleLabel.Text = "\ud83d\udcca \u6a21\u578b\u4f7f\u7528\u5360\u6bd4";
+        providerTitleLabel.Text = L.Text("\ud83d\udcca \u6a21\u578b\u4f7f\u7528\u5360\u6bd4");
         for (var index = 0; index < providerRowsForDisplay.Count; index++)
         {
             providerLineLabels[index].Text = providerRowsForDisplay[index].Name;
             providerPercentLabels[index].Text = $"{providerRowsForDisplay[index].Percent}%";
         }
-        updatedLabel.Text = DateTime.Now.ToString("'\u66f4\u65b0\u4e8e' HH:mm", CultureInfo.InvariantCulture);
+        updatedLabel.Text = DateTime.Now.ToString(L.Text("'\u66f4\u65b0\u4e8e' HH:mm"), CultureInfo.InvariantCulture);
         if (alwaysVisibleCheckBox.Checked != store.Settings.CompanionUi.ButtonAlwaysVisible)
         {
             alwaysVisibleCheckBox.Checked = store.Settings.CompanionUi.ButtonAlwaysVisible;
@@ -1005,6 +1186,7 @@ public sealed partial class Form1 : Form
 
     private void FollowPet()
     {
+        if (!enableRuntime) return;
         var petRect = petController.GetPetRect();
         if (petRect is null)
         {
@@ -1177,10 +1359,19 @@ public sealed partial class Form1 : Form
             .ThenByDescending(model => model.EstimatedCost)
             .Select(model => (
                 Name: model.Name,
-                Percent: (int)Math.Clamp(model.TotalTokens * 100 / total, 0, 100)))
+                Share: Math.Clamp(model.TotalTokens * 100D / total, 0D, 100D)))
             .ToList();
 
-        return rows;
+        var percentages = rows.Select(row => (int)Math.Floor(row.Share)).ToArray();
+        if (usage.TotalTokens > 0)
+        {
+            // Keep rounded shares at 100% while preserving the largest fractions.
+            var remainder = Math.Max(0, 100 - percentages.Sum());
+            foreach (var index in Enumerable.Range(0, rows.Count)
+                .OrderByDescending(index => rows[index].Share - percentages[index]).Take(remainder))
+                percentages[index]++;
+        }
+        return rows.Select((row, index) => (row.Name, percentages[index]));
     }
 
     private static string ModelBreakdownKey(UsageRecord record)
@@ -1192,22 +1383,22 @@ public sealed partial class Form1 : Form
 
         if (!string.IsNullOrWhiteSpace(record.Provider))
         {
-            return $"{record.Provider} unknown";
+            return L.Pick($"{record.Provider} unknown", $"{record.Provider} 未知模型");
         }
 
-        return "\u672a\u77e5\u6a21\u578b";
+        return L.Text("\u672a\u77e5\u6a21\u578b");
     }
 
     private string GetButtonText(DailyUsage usage)
     {
         return store.Settings.CompanionUi.ButtonMetric switch
         {
-            "tokens" => $"{FormatTokens(usage.TotalTokens)} Token",
-            "typing" => $"\u6253\u5b57 {store.Today.TypingCount:N0}",
-            "mouse" => $"\u70b9\u51fb {store.Today.MouseClickCount:N0}",
-            "cost" => FormatMoney(usage.EstimatedCost),
-            "calls" => $"\u5bf9\u8bdd {usage.RecordCount:N0}",
-            _ => "\u4eca\u65e5\u966a\u4f34"
+            "tokens" => L.Pick($"{FormatTokens(usage.TotalTokens)} tokens", $"{FormatTokens(usage.TotalTokens)} 令牌"),
+            "typing" => L.Format($"\u6253\u5b57 {store.Today.TypingCount:N0}"),
+            "mouse" => L.Format($"\u70b9\u51fb {store.Today.MouseClickCount:N0}"),
+            "cost" => FormatUsageCost(usage),
+            "calls" => L.Format($"\u5bf9\u8bdd {usage.RecordCount:N0}"),
+            _ => L.Text("\u4eca\u65e5\u966a\u4f34")
         };
     }
 
@@ -1248,6 +1439,12 @@ public sealed partial class Form1 : Form
         return value < 0.01M && value > 0M
             ? "$<0.01"
             : value.ToString("$0.00", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatUsageCost(DailyUsage usage)
+    {
+        if (usage.UnpricedRecordCount == 0) return FormatMoney(usage.EstimatedCost);
+        return usage.EstimatedCost > 0 ? FormatMoney(usage.EstimatedCost) + "+" : "—";
     }
 
     private int Scale(int value)
@@ -1353,10 +1550,7 @@ public sealed partial class Form1 : Form
             e.Graphics.DrawLine(divider, Scale(274), botTop, Scale(274), botBottom);
         }
 
-        for (var index = 0; index < providerRowsForDisplay.Count; index++)
-        {
-            DrawUsageBar(e.Graphics, ScaleRect(196, GetModelRowY(index) + 4, 154, 10), providerRowsForDisplay[index].Percent);
-        }
+
     }
 
     private static void DrawUsageBar(Graphics graphics, Rectangle rect, int percent)

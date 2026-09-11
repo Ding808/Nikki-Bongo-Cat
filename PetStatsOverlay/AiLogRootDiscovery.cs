@@ -15,7 +15,14 @@ public static class AiLogRootDiscovery
         new() { Name = "cursor-workspace", Path = @"%APPDATA%\Cursor\User\workspaceStorage", ScanJsonFiles = true },
         new() { Name = "windsurf-global", Path = @"%APPDATA%\Windsurf\User\globalStorage", ScanJsonFiles = true },
         new() { Name = "windsurf-workspace", Path = @"%APPDATA%\Windsurf\User\workspaceStorage", ScanJsonFiles = true },
-        new() { Name = "continue", Path = @"%USERPROFILE%\.continue", ScanJsonFiles = true }
+        new() { Name = "continue", Path = @"%USERPROFILE%\.continue", ScanJsonFiles = true },
+        new() { Name = "gemini-cli", ProviderHint = "google", Path = @"%USERPROFILE%\.gemini\tmp", ScanJsonFiles = true },
+        new() { Name = "kimi-cli", ProviderHint = "kimi", Path = @"%USERPROFILE%\.kimi\sessions", ScanJsonFiles = true },
+        new() { Name = "qwen-code", ProviderHint = "qwen", Path = @"%USERPROFILE%\.qwen\projects", ScanJsonFiles = true },
+        new() { Name = "opencode", Path = @"%USERPROFILE%\.local\share\opencode\storage", ScanJsonFiles = true },
+        new() { Name = "cline", Path = @"%APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\tasks", ScanJsonFiles = true },
+        new() { Name = "roo-code", Path = @"%APPDATA%\Code\User\globalStorage\rooveterinaryinc.roo-cline\tasks", ScanJsonFiles = true },
+        new() { Name = "kilo-code", Path = @"%APPDATA%\Code\User\globalStorage\kilocode.kilo-code\tasks", ScanJsonFiles = true }
     ];
 
     private static readonly PortableSuffix[] PortableSuffixes =
@@ -41,7 +48,7 @@ public static class AiLogRootDiscovery
 
     public static IEnumerable<LogRootSetting> DiscoverExisting()
     {
-        foreach (var root in GetDefaultRoots())
+        foreach (var root in GetDefaultRoots().Concat(DiscoverPackagedClaudeRoots()))
         {
             var exists = false;
             try
@@ -58,6 +65,26 @@ public static class AiLogRootDiscovery
                 yield return root;
             }
         }
+    }
+
+    // Store/MSIX installations redirect roaming/local app data into the package cache.
+    // Discover the publisher suffix instead of hard-coding one user's package identity.
+    public static IEnumerable<LogRootSetting> DiscoverPackagedClaudeRoots(string? packagesDirectory = null)
+    {
+        var packages = packagesDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages");
+        var roots = new List<LogRootSetting>();
+        if (!Directory.Exists(packages)) return roots;
+        try
+        {
+            foreach (var package in Directory.EnumerateDirectories(packages, "*Claude*", new EnumerationOptions { IgnoreInaccessible = true }))
+                foreach (var suffix in new[] { @"LocalCache\Roaming\Claude", @"LocalCache\Local\Claude", @"LocalState\Claude" })
+                {
+                    var path = Path.Combine(package, suffix);
+                    if (Directory.Exists(path)) roots.Add(new LogRootSetting { Name = "claude-desktop-store", ProviderHint = "anthropic", Path = path, ScanJsonFiles = true });
+                }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        return roots;
     }
 
     public static LogRootSetting NormalizeKnownRoot(LogRootSetting root)

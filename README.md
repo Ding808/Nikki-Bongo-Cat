@@ -1,148 +1,222 @@
 # Nikki Bongo Cat
 
-一个以暖暖 Live2D 模型为核心的 Windows 桌宠。项目在 Bongo Cat Mver 运行时之上增加了统计浮窗、模型管理和 Steam Bongo Cat 游玩时长模式。
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-## 下载
+A Windows Live2D desktop companion that reacts to your keyboard and mouse, with a small dashboard for today's AI usage, estimated cost, and input activity. Choose a pink or purple Nikki skin, manage your own models, and keep the statistics panel as small or large as you like.
 
-普通用户请从 [GitHub Releases](https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest) 下载 `Nikki-Bongo-Cat-win-x64.zip`，完整解压后再使用。不要下载仓库页面中“Code → Download ZIP”生成的源码包：源码包按照 Git 规则不包含编译后的 `PetStatsOverlay.exe`。
+**[Download the ready-to-use Windows x64 package](https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest)** · [What's new](CHANGELOG.md)
 
-成品包已经包含所有运行组件，用户无需安装 .NET、SDK 或 Visual Studio，也不需要执行任何编译操作。
+Download **`Nikki-Bongo-Cat-win-x64.zip`**, extract the entire folder, and double-click **`StartPetWithStats.cmd`**. The release includes its runtime; you do not need .NET, Visual Studio, or a build step. GitHub's **Source code** downloads are for developers and do not include the built companion application.
 
-## 功能
+A matching `Nikki-Bongo-Cat-win-x64.zip.sha256` file is attached to each release. To verify a download, compare its value with `Get-FileHash .\Nikki-Bongo-Cat-win-x64.zip -Algorithm SHA256` in PowerShell.
 
-- 根据键盘、鼠标输入播放桌宠动作与表情
-- 显示当日 AI 调用次数、Token、估算费用、键盘次数和鼠标点击次数
-- 自动读取 Codex、Claude Code 等本地日志，并支持额外日志目录
-- 在托盘中打开统计面板、自定义桌宠、重启桌宠或退出浮窗
-- “今日陪伴”入口会跟随桌宠移动，并在桌宠靠近屏幕边缘时自动切换到合适方向
-- 从托盘或自定义界面一键切换粉色/紫色暖暖，首次使用默认粉色，并自动记住上次选择
-- 导入、切换、导出 Live2D 模型和配置动作按键
-- 锁定桌宠后保持置顶并允许鼠标穿透
-- 通过 Steam 模式启动官方 Bongo Cat，让 Steam 正常累计 App 3419430 的游玩时长
+## Preview
 
-## 系统要求
+![Pink Nikki desktop pet](docs/images/pet-preview.png)
 
-- Windows 10/11 x64
-- 普通模式不需要 Steam
-- Steam 模式需要安装 Steam，并在库中安装免费的 [Bongo Cat](https://store.steampowered.com/app/3419430/Bongo_Cat/)
-- 从源码构建需要 .NET 9 SDK
+The actual Live2D pet rendered on a transparent background.
 
-## 快速开始
+![English statistics panel](docs/images/dashboard-en.png)
 
-请完整解压成品包，不要单独移动 EXE、DLL、`img` 或 `Resources`。
+The real English interface with sample statistics. Figures are illustrative, not a user's account or invoice.
 
-### 普通模式
+![Chinese statistics panel](docs/images/dashboard-zh.png)
 
-双击 `StartPetWithStats.cmd`。它会启动本地桌宠和统计浮窗。
+The same interface in Chinese. Language changes apply immediately to the dashboard, menus, tooltips, and customization screens.
 
-成品包中的统计程序已经自包含，不需要安装任何开发环境。不要把其中的 EXE 单独移动出去；程序还需要同一套目录中的设置、模型和桌宠运行文件。
+## Features
 
-### Steam 游玩时长模式
+- Animated Live2D pet, keyboard and mouse reactions, and persistent pink/purple skin selection.
+- Today's observed AI requests, tokens, estimated cost in USD, keystrokes, and mouse clicks.
+- Model usage shares based on tokens, with a scrollable list that keeps every observed model visible.
+- Claude Desktop conversation-cache reading, including Microsoft Store and standalone installations; Codex, Claude Code, and compatible JSON/JSONL logs.
+- A bundled model price catalogue with online updates and custom price overrides. Models with no known price still count toward tokens and model share.
+- English by default, with Chinese available directly inside the panel.
+- Independent statistics-panel sizing from 65% to 175%, plus a custom percentage.
+- Drag with the left button or resize with the right button **on the visible pet**. Transparent space around it remains available to other applications.
+- Lock mode that passes clicks through the entire pet; Steam launch integration is also available.
 
-推荐先双击 `CopySteamLaunchOption.cmd`。它会读取当前解压位置，自动生成正确的绝对路径并复制到剪贴板。然后在 Steam 库中右键 Bongo Cat，打开“属性 → 通用 → 启动选项”，删除原有内容并直接粘贴；不需要照抄作者电脑上的盘符或目录。
+## Requirements
 
-如果需要手动填写，格式如下：
+- Windows 10/11, 64-bit, with a graphics driver that supports the bundled Live2D/OpenGL renderer.
+- Steam is optional. Steam integration requires the free [Bongo Cat](https://store.steampowered.com/app/3419430/Bongo_Cat/) in your library.
+- A .NET 9 SDK is required only when building from source.
 
-```text
-"<你的解压目录>\Nikki-Bongo-Cat\PetStatsOverlay\PetStatsOverlay.exe" --steam-launcher %command%
-```
+Keep the release's EXE files, DLLs, `img`, and `Resources` together. Extract to a folder your account can write to, since pet settings and model customization are saved alongside the application.
 
-启动选项看起来较长是正常的，不会影响 Steam 启动或游玩时长统计。请保留 EXE 路径外侧的英文双引号；路径中含空格或中文也可以正常使用。
+## Everyday controls
 
-请以电脑上实际存在的文件为准。不要为了缩短启动选项而单独移动 `PetStatsOverlay.exe`，否则它可能找不到 `config.json`、桌宠程序或模型资源。
-
-设置一次后，直接在 Steam 中点击“开始游戏”即可。Steam 启动的是统计程序，统计程序只启动一只本地暖暖桌宠；统计程序保持运行期间，Steam 会把时长记录到 Bongo Cat。关闭桌宠后统计程序会一起退出，Steam 结束计时。
-
-完成 Steam 启动选项配置后，也可以双击 `StartPetWithStats.Steam.cmd`。它只负责请求 Steam 启动 Bongo Cat，后续仍由上面的 `--steam-launcher` 接管。
-
-## 启动参数
-
-| 参数 | 作用 |
+| Action | How |
 | --- | --- |
-| `--launch-pet` | 启动本地桌宠后运行统计浮窗 |
-| `--steam-launcher` | 供 Steam 启动选项使用，只启动一只本地桌宠和统计浮窗 |
-| `--steam` | 请求 Steam 启动 App 3419430 后退出 |
-| `--help` | 显示参数帮助 |
+| Open the dashboard | Double-click the small companion button; or choose **Open statistics** in the tray menu. |
+| Change language | Click **EN** in the panel header (**中** when using Chinese), then choose a language. Also available in **Settings → Language**. |
+| Change dashboard size | **Settings → Panel size**: choose a preset or **Custom size…** (65–175%). |
+| Move the pet | Hold the left mouse button on a visible part of the unlocked pet and drag. |
+| Resize the pet | Hold the right mouse button on a visible part of the unlocked pet and drag. |
+| Lock / unlock | Numpad **−** / **+**, or the panel/tray lock controls. |
+| Keep the small button visible | **Settings → Always show button**. Otherwise it appears near the pointer/pet. |
+| Change the small button's metric | **Settings → Button display**. |
+| Change skin | **Settings → Switch skin**, or the tray menu. |
+| Manage models and hotkeys | **Settings → Customize pet**; **Ctrl+Shift+S** also opens the bilingual editor while the pet has focus. |
+| Apply edited model settings | Choose **Save and restart** in the editor. |
+| Reset input counters | **Settings → Reset today's input counts**. AI totals are reconstructed from logs and are not erased by this command. |
 
-旧参数 `--attach-steam-bongo-cat` 仍可使用，它与 `--steam-launcher` 等效。
+Language and panel size are remembered. Large panels are fitted to the monitor's usable area. The desktop pet and its dashboard have separate size controls. The old “Interactive” startup label has been removed.
 
-## 使用说明
+## AI usage and pricing
 
-- 双击桌宠旁边的粉色入口可展开统计面板。
-- 右键桌宠或使用系统托盘菜单可以打开设置。
-- 在托盘菜单选择“切换皮肤 → 粉色暖暖/紫色暖暖”即可换肤并重启；选择会写入 `config.json`，下次启动自动恢复。
-- 小键盘 `-`：锁定桌宠并开启鼠标穿透。
-- 小键盘 `+`：解除锁定。
-- 在“自定义桌宠”中可以更换图片、动作按键和 Live2D 模型。
-- 修改模型后使用“重启桌宠”应用配置。
+### Where the numbers come from
 
-统计数据默认保存在：
+The application reads usage metadata already present on this computer. It does not need your API keys or a connection to your AI account.
 
-```text
-%LOCALAPPDATA%\PetStatsOverlay\state.json
+| Source | What can be read |
+| --- | --- |
+| Claude Desktop | Cached conversation usage/model metadata from the local `claude.ai` IndexedDB database, for standalone and Microsoft Store installations. |
+| Claude Code | Session/project usage records, normally under `%USERPROFILE%\.claude\projects`. |
+| Codex | Session usage logs, normally under `%USERPROFILE%\.codex\sessions`, plus compatible desktop-app logs. |
+| Gemini CLI | Saved JSON session records under `%USERPROFILE%\.gemini\tmp`, including cached input and thoughts tokens. |
+| Other clients and gateways | Recognized JSON/JSONL/NDJSON usage records in discovered or user-added log folders. Common OpenAI-, Anthropic-, and Gemini-style usage fields are supported. |
+
+Known folders for Claude, Codex, Gemini CLI, Kimi CLI, Qwen Code, OpenCode JSON storage, Cursor, Windsurf, Continue, and Cline/Roo/Kilo task storage are discovered automatically where present. Folder discovery is not a guarantee that every version of that client writes readable token records. A browser conversation, remote account, or client that does not expose usage locally cannot be reconstructed from nothing.
+
+Claude Desktop may evict its cache or omit conversations that have not been opened locally. Only available usage metadata can be included; encrypted or absent records are not estimated by counting prompt text. A new app version may also change its storage format. Records without a usable timestamp cannot be assigned to today and are excluded. Statistics update at startup and approximately once per minute, using the computer's local calendar day.
+
+**Requests** means observed usage records after deduplication, not necessarily the number of chat threads. **Model usage** is the model's share of observed tokens, not its share of money or subscription usage limits. Whole-number percentages may not sum to exactly 100%.
+
+### Model families and prices
+
+The price catalogue covers major providers and gateways, including OpenAI, Anthropic Claude, Google Gemini/Vertex, xAI Grok, Moonshot/Kimi, Z.ai/GLM, DeepSeek, Alibaba Qwen, Mistral, Cohere, Meta Llama through hosting providers, MiniMax, Perplexity, OpenRouter, Groq, Together, Fireworks, Azure, and Amazon Bedrock. Coverage depends on the exact model identifier, route, and pricing fields exposed by the catalogue.
+
+The release carries an offline snapshot dated **2026-09-11**, with **2,959 chat/completion/responses catalogue entries across 90 provider identifiers** (including aliases and deployments, not 2,959 distinct base models), and normally refreshes the public [LiteLLM price catalogue](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) every 24 hours. Failed downloads leave the bundled/cached data available. Common aliases, provider prefixes, dated model identifiers, and effort labels are normalized where a supported match exists. See [pricing coverage and provenance](docs/model-pricing.md).
+
+**Cost is an API-equivalent estimate in USD, not a Claude Max, ChatGPT, or other subscription invoice.** Explicit usable costs from a log are preferred; otherwise the app applies supported input, output, and cache rates. Provider billing rules, discounts, taxes, non-token charges, and unexposed usage can differ from these estimates.
+
+An unknown price never removes the model's token usage. The panel marks incomplete pricing with an unpriced-record count; a trailing **+** means the displayed amount is a known subtotal, and **—** means no priced total is available. Add an override for a private gateway or a model whose official identifier/rate is missing.
+
+### Add log folders or custom rates
+
+Open **Settings → Open settings file**, close the companion before editing, and merge the relevant fields into `pet-stats-settings.json`. Restart after saving. Paths support `%USERPROFILE%`, `%APPDATA%`, `%LOCALAPPDATA%`, and `~`.
+
+```json
+{
+  "ExtraLogRoots": ["D:\\AI-logs"],
+  "ScanJsonFiles": true,
+  "CompanionUi": {
+    "Language": "en",
+    "PanelScale": 1.25
+  },
+  "Prices": [
+    {
+      "Pattern": "my-private-model",
+      "Provider": "my-gateway",
+      "InputPerMillion": 1.0,
+      "OutputPerMillion": 4.0,
+      "CacheReadPerMillion": 0.1,
+      "CacheWrite5mPerMillion": 1.25,
+      "CacheWrite1hPerMillion": 2.0
+    }
+  ]
+}
 ```
 
-统计设置保存在 `PetStatsOverlay.exe` 同目录的 `pet-stats-settings.json`。AI 用量来自本机日志；模型价格目录默认从 LiteLLM 的公开价格表更新。
+A `Pattern` can be an exact identifier or a wildcard such as `private-*`; `Provider` is optional. The example prices are **fictional**, for demonstrating settings only. Replace them with your provider's rates per one million tokens. Enable `ScanJsonFiles` when the added source uses `.json` rather than `.jsonl`; add the smallest relevant log folder instead of an entire drive. For per-folder control, use a `LogRoots` entry with `Name`, `Path`, `ProviderHint`, `ScanJsonFiles`, and `Enabled`.
 
-## Live2D 模型
+## Privacy, saved data, and updates
 
-模型库位于：
+| Location | Purpose |
+| --- | --- |
+| `%LOCALAPPDATA%\PetStatsOverlay\state.json` | Local daily keyboard/mouse counters. |
+| `PetStatsOverlay\pet-stats-settings.json` | Language, panel size, log locations, and price overrides. |
+| `%LOCALAPPDATA%\PetStatsOverlay` | Companion data and cached pricing. Open it from **Settings → Open data folder**. |
+| `config.json` | Renderer settings and selected skin/model. |
+| `img\standard\live2d_models` | Model library and per-model profiles/assets. |
+| `.petstats_backups` | Local backups made by supported customization operations. |
+
+AI logs and the Claude conversation cache are read locally. The companion does not upload prompts, conversation contents, or usage records; its automatic pricing request downloads public pricing data. Input statistics count key and mouse activity rather than saving typed text.
+
+To update, exit the companion and pet, extract the new release into a new folder, and copy across your `pet-stats-settings.json` and any custom models/configuration you wish to keep. Daily input history remains in your Windows profile. Release packages exclude the author's local settings, logs, caches, backups, build intermediates, and test output.
+
+## Live2D customization
+
+Open **Customize pet** to switch built-in skins, bind animation/expression keys, replace supported images, import a Live2D model folder or ZIP package, and export a model package.
+
+A model folder must contain exactly one `*.model3.json` at its root, along with its referenced Moc and texture resources. The selected library model is synchronized to `img\standard\cat_model` for the renderer. `petstats-live2d-profile.json` keeps its hotkeys and model settings; `petstats-assets` carries its companion images and sounds. Use **Save and restart** or **Apply selected model and restart** to load the changes.
+
+## Steam playtime mode
+
+1. Install Bongo Cat from Steam.
+2. Run **`CopySteamLaunchOption.cmd`** from the extracted Nikki Bongo Cat folder.
+3. In Steam, right-click **Bongo Cat → Properties → General → Launch Options**. Paste the copied command, replacing old launch options.
+4. Start Bongo Cat from Steam, or use **`StartPetWithStats.Steam.cmd`**.
+
+The generated launch option uses your actual extraction path:
 
 ```text
-img\standard\live2d_models
+"<your extracted folder>\PetStatsOverlay\PetStatsOverlay.exe" --steam-launcher %command%
 ```
 
-每个模型使用独立文件夹，文件夹根目录应包含且只包含一个 `*.model3.json`，并具备它引用的 Moc、贴图等资源。程序切换模型时会把所选模型同步到运行目录 `img\standard\cat_model`。
+Keep the quotes and `%command%`. Configure it again if you move the folder. In this mode Steam launches the companion and one bundled Nikki pet; the companion's process lifetime is used for playtime. Close the pet/companion when finished.
 
-`petstats-live2d-profile.json` 保存模型名称、动作键、表情键等配置；`petstats-assets` 保存该模型配套的桌宠图片和音效。
+### Launch arguments
 
-## 开发者：从源码构建
+| Argument | Purpose |
+| --- | --- |
+| `--launch-pet` | Start the bundled pet and companion dashboard. |
+| `--steam-launcher` | Entry point used by the Steam launch option. |
+| `--steam` | Ask Steam to launch App 3419430, then exit. |
+| `--help` | Show launch help. |
 
-在仓库根目录执行：
+The older `--attach-steam-bongo-cat` argument remains an alias of `--steam-launcher`.
+
+## Troubleshooting
+
+| Problem | Check |
+| --- | --- |
+| “Cannot find PetStatsOverlay.exe” | Download the ready-to-use ZIP from Releases and extract all files. The source archive does not contain that executable. |
+| A model has tokens but no cost | Check the unpriced-record notice, the exact logged model identifier, catalogue connectivity, and custom `Prices` overrides. |
+| Claude Desktop usage is missing | Open the relevant conversation in Claude Desktop, let its local cache update, and wait for the next statistics refresh. The app cannot recover uncached usage. |
+| Another client's usage is missing | Confirm it writes usage counts and timestamps to compatible local logs, then add the relevant folder. Selecting a provider does not enable account-level billing access. |
+| Changes to settings are not applied | Close the companion, check that the settings file is valid JSON, save, and restart. |
+| Pet is locked or cannot be dragged | Press numpad **+** or choose **Unlock pet**, then drag a visible part of the pet. Use the supplied launcher so pet and companion run at the same privilege level. |
+| The dashboard is too large | Choose a smaller **Panel size**. Scroll the model list to see additional models. |
+| Steam launches the wrong program | Re-run `CopySteamLaunchOption.cmd` and replace the complete Steam launch option. |
+
+## Build and test from source
+
+Install the .NET 9 SDK, clone the repository, and run from its root:
 
 ```powershell
 dotnet restore .\PetStatsOverlay\PetStatsOverlay.csproj
-dotnet build .\PetStatsOverlay\PetStatsOverlay.csproj -c Release -r win-x64
-```
-
-生成可独立运行的 Windows x64 版本：
-
-```powershell
-dotnet publish .\PetStatsOverlay\PetStatsOverlay.csproj `
-  -c Release `
-  -r win-x64 `
-  --self-contained true `
-  -p:PublishSingleFile=true
-```
-
-发布结果位于：
-
-```text
-PetStatsOverlay\bin\Release\net9.0-windows\win-x64\publish
-```
-
-保留发布目录在仓库内部的默认位置即可，两个启动脚本会自动找到它。
-
-生成可直接发给普通用户的完整压缩包：
-
-```powershell
+dotnet build .\PetStatsOverlay\PetStatsOverlay.csproj -c Release
 .\BuildRelease.ps1
 ```
 
-成品位于 `artifacts\Nikki-Bongo-Cat-win-x64.zip`，其中已经包含自包含的统计程序、桌宠运行文件、模型、启动脚本和 README，不要求用户安装 .NET。推送形如 `v1.0.0` 的 Git 标签时，GitHub Actions 也会自动构建并把同名 ZIP 附加到 GitHub Release；手动运行工作流则会生成可下载的 Actions artifact。
+The last command builds the self-contained application and creates **`artifacts\Nikki-Bongo-Cat-win-x64.zip`** with the renderer, assets, documentation, and launchers. GitHub Actions performs the same packaging for version tags such as `v1.1.0` and attaches the ZIP and its SHA-256 checksum to the release. The verification workflow also runs the automated checks on pushes and pull requests.
 
-## 项目结构
+Run all regression checks, including language/layout smoke checks:
+
+```powershell
+.\Test.ps1 -IncludeUi
+```
+
+Or run a focused check:
+
+```powershell
+dotnet run --project .\Tests\UsageTests\UsageTests.csproj
+dotnet run --project .\Tests\DesktopTests\DesktopTests.csproj
+dotnet run --project .\Tests\PetHitTesting\PetHitTesting.csproj
+dotnet run --project .\Tests\UiSmoke\UiSmoke.csproj
+```
+
+The hit-testing harness also accepts `-- --native <isolated-BongoCatMver-process-id>` to verify actual window-surface alpha and Windows click routing against a separately launched test pet. Run that integration mode only with a disposable test instance: it temporarily changes the pet's window styles and creates a small overlapping test window.
 
 ```text
-Nikki-Bongo-Cat/
-├─ PetStatsOverlay/            # 统计浮窗与桌宠管理器源码
-├─ img/                        # Bongo Cat 图片、音效和 Live2D 模型
-├─ Resources/                  # Bongo Cat 运行资源
-├─ BongoCatMver.exe            # 桌宠运行时
-├─ BongoCatUI.exe              # 原生配置界面
-├─ BuildRelease.ps1            # 生成完整 Windows 发布压缩包
-├─ CopySteamLaunchOption.cmd   # 按实际解压路径复制 Steam 启动选项
-├─ config.json                 # 桌宠配置
-├─ StartPetWithStats.cmd       # 普通入口，也接受 --steam
-└─ StartPetWithStats.Steam.cmd # Steam 时长模式快捷入口
+PetStatsOverlay/      Companion UI, log readers, pricing, and pet controller
+Tests/                Usage, desktop-cache, hit-testing, and UI checks
+img/                  Images, sounds, and Live2D models
+Resources/            Bundled renderer resources
+docs/                 Preview images and release notes
+BuildRelease.ps1      Portable release packaging
 ```
+
+The pet renderer builds on [MMmmmoko/Bongo-Cat-Mver](https://github.com/MMmmmoko/Bongo-Cat-Mver). Public pricing data is supplied by [LiteLLM](https://github.com/BerriAI/litellm). The model artwork and runtime components retain their respective attribution and licensing.

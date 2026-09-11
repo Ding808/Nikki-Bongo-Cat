@@ -13,14 +13,19 @@ public sealed class KeyboardCounter : IDisposable
     private readonly Dictionary<Keys, bool> lastMouseState;
     private bool lastLockState;
     private bool lastUnlockState;
+    private readonly KeyboardHook settingsShortcutHook;
+    private nint settingsShortcutHandle;
+    private bool suppressSettingsKey;
 
     public event EventHandler? TextKeyPressed;
     public event EventHandler? MouseClicked;
     public event EventHandler? LockRequested;
     public event EventHandler? UnlockRequested;
+    public event EventHandler? CustomizeRequested;
 
     public KeyboardCounter()
     {
+        settingsShortcutHook = SettingsShortcut;
         trackedKeys = CreateTrackedKeys();
         lastState = trackedKeys.ToDictionary(key => key, _ => false);
         lastMouseState = mouseKeys.ToDictionary(key => key, _ => false);
@@ -36,6 +41,8 @@ public sealed class KeyboardCounter : IDisposable
 
     public void Start()
     {
+        if (settingsShortcutHandle == 0)
+            settingsShortcutHandle = SetWindowsHookEx(13, settingsShortcutHook, GetModuleHandle(null), 0);
         pollTimer.Start();
     }
 
@@ -43,6 +50,49 @@ public sealed class KeyboardCounter : IDisposable
     {
         pollTimer.Stop();
         pollTimer.Dispose();
+        if (settingsShortcutHandle != 0) UnhookWindowsHookEx(settingsShortcutHandle);
+        settingsShortcutHandle = 0;
+    }
+
+    private nint SettingsShortcut(int code, nint message, nint data)
+    {
+        // Route the pet's own focused settings shortcut to our localized editor.
+        // Never consume Save As in another application.
+        try
+        {
+            if (code >= 0 && Marshal.ReadInt32(data) == (int)Keys.S)
+            {
+                var down = message == 0x100 || message == 0x104;
+                var up = message == 0x101 || message == 0x105;
+                if (down && IsDown(Keys.ControlKey) && IsDown(Keys.ShiftKey) && !IsDown(Keys.Menu) && IsPetForeground())
+                {
+                    var notify = !suppressSettingsKey;
+                    suppressSettingsKey = true;
+                    if (notify) CustomizeRequested?.Invoke(this, EventArgs.Empty);
+                    return 1;
+                }
+                if (suppressSettingsKey)
+                {
+                    if (up) suppressSettingsKey = false;
+                    return 1;
+                }
+            }
+        }
+        catch
+        {
+            // Closing windows or a failing subscriber must not unwind a native hook.
+        }
+        return CallNextHookEx(settingsShortcutHandle, code, message, data);
+    }
+
+    private static bool IsPetForeground()
+    {
+        var window = GetForegroundWindow();
+        if (window == 0) return false;
+        GetWindowThreadProcessId(window, out var processId);
+        if (processId == 0) return false;
+        using var process = System.Diagnostics.Process.GetProcessById((int)processId);
+        return string.Equals(process.ProcessName, "BongoCatMver", StringComparison.OrdinalIgnoreCase);
     }
 
     private void PollKeyboard()
@@ -134,4 +184,19 @@ public sealed class KeyboardCounter : IDisposable
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
+
+    private delegate nint KeyboardHook(int code, nint message, nint data);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern nint SetWindowsHookEx(int idHook, KeyboardHook callback, nint module, uint threadId);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnhookWindowsHookEx(nint hook);
+    [DllImport("user32.dll")]
+    private static extern nint CallNextHookEx(nint hook, int code, nint message, nint data);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint GetModuleHandle(string? moduleName);
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
 }

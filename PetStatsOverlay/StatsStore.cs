@@ -18,15 +18,15 @@ public sealed class StatsStore
     public PetStatsSettings Settings { get; }
     public DailyState Today { get; private set; }
 
-    public StatsStore()
+    public StatsStore(string? dataDirectory = null, string? settingsPath = null)
     {
-        DataDirectory = Path.Combine(
+        DataDirectory = dataDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PetStatsOverlay");
         Directory.CreateDirectory(DataDirectory);
 
         StatePath = Path.Combine(DataDirectory, "state.json");
-        SettingsPath = Path.Combine(AppContext.BaseDirectory, "pet-stats-settings.json");
+        SettingsPath = settingsPath ?? Path.Combine(AppContext.BaseDirectory, "pet-stats-settings.json");
 
         Settings = LoadSettings();
         Today = LoadState().GetToday();
@@ -167,6 +167,10 @@ public sealed class StatsStore
         }
 
         loaded.CompanionUi ??= defaults.CompanionUi;
+        loaded.CompanionUi.Language = loaded.CompanionUi.Language?.StartsWith("zh", StringComparison.OrdinalIgnoreCase) == true ? "zh" : "en";
+        loaded.CompanionUi.PanelScale = double.IsFinite(loaded.CompanionUi.PanelScale)
+            ? Math.Clamp(loaded.CompanionUi.PanelScale, 0.65D, 1.75D)
+            : 1D;
         if (string.IsNullOrWhiteSpace(loaded.CompanionUi.ButtonMetric))
         {
             loaded.CompanionUi.ButtonMetric = defaults.CompanionUi.ButtonMetric;
@@ -279,6 +283,8 @@ public sealed class PetStatsSettings
 
 public sealed class CompanionUiSettings
 {
+    public string Language { get; set; } = "en";
+    public double PanelScale { get; set; } = 1D;
     public bool ButtonAlwaysVisible { get; set; }
     public string ButtonMetric { get; set; } = "companion";
     public bool ButtonManualPosition { get; set; }

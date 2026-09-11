@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../PetStatsOverlay/ClaudeDesktopUsageReader.cs" Link="ClaudeDesktopUsageReader.cs" />
+    <Compile Include="../../PetStatsOverlay/AiLogRootDiscovery.cs" Link="AiLogRootDiscovery.cs" />
+    <Compile Include="../../PetStatsOverlay/StatsStore.cs" Link="StatsStore.cs" />
+  </ItemGroup>
+</Project>

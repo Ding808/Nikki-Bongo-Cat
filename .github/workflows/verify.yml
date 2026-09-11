@@ -1,0 +1,23 @@
+name: Verify Windows application
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Build application
+        run: dotnet build PetStatsOverlay/PetStatsOverlay.csproj -c Release
+      - name: Verify usage, desktop cache, hit testing and both languages
+        shell: pwsh
+        run: ./Test.ps1 -IncludeUi

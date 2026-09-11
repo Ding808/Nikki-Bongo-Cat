@@ -16,19 +16,9 @@ if /i "%~1"=="--print" (
   exit /b 0
 )
 
-echo %OPTION%| clip
-echo.
-echo Steam launch option copied to the clipboard:
-echo %OPTION%
-echo.
-echo Paste it into Steam: Bongo Cat - Properties - General - Launch Options
-pause
+start "" "%STATS%" --copy-steam-option
 exit /b 0
 
 :MissingExecutable
-echo.
-echo [Nikki Bongo Cat] Cannot find PetStatsOverlay.exe.
-echo Run StartPetWithStats.cmd once to build it, or download the packaged release:
-echo https://github.com/Ding808/Nikki-Bongo-Cat/releases/latest
-pause
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%LauncherMessages.ps1"
 exit /b 1

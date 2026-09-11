@@ -24,13 +24,17 @@ jobs:
 
       - name: Build portable package
         shell: pwsh
-        run: ./BuildRelease.ps1
+        run: |
+          ./Test.ps1 -IncludeUi
+          ./BuildRelease.ps1
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: Nikki-Bongo-Cat-win-x64
-          path: artifacts/Nikki-Bongo-Cat-win-x64.zip
+          path: |
+            artifacts/Nikki-Bongo-Cat-win-x64.zip
+            artifacts/Nikki-Bongo-Cat-win-x64.zip.sha256
           if-no-files-found: error
 
       - name: Attach package to GitHub Release
@@ -41,10 +45,11 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $package = "artifacts/Nikki-Bongo-Cat-win-x64.zip"
+          $checksum = "$package.sha256"
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $package --clobber
+            gh release upload $tag $package $checksum --clobber
           }
           else {
-            gh release create $tag $package --generate-notes --title "Nikki Bongo Cat $tag"
+            gh release create $tag $package $checksum --notes-file docs/release-notes.md --title "Nikki Bongo Cat $tag"
           }
