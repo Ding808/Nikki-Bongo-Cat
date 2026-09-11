@@ -1,0 +1,2 @@
+# Keep the bundled upstream pricing snapshot byte-identical on Windows and in CI.
+/PetStatsOverlay/Data/model-prices.litellm.json text eol=lf
