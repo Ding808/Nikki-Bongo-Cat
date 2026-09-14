@@ -17,17 +17,18 @@ public static class ClaudeDesktopUsageReader
     private const int MaxDecodedBytes = 64 * 1024 * 1024;
     private sealed record Entry(byte[] Key, byte[] Value, ulong Sequence, bool Deleted);
 
-    public static IEnumerable<(string Source, JsonElement Payload)> Read(string rootPath, int maxFileMb = 128)
+    public static IEnumerable<(string Source, JsonElement Payload)> Read(string rootPath, int maxFileMb = 128, CancellationToken cancellationToken = default)
     {
         var root = AiLogRootDiscovery.ExpandPath(rootPath);
         var directory = Path.Combine(root, "IndexedDB", "https_claude.ai_0.indexeddb.leveldb");
         if (root.EndsWith("https_claude.ai_0.indexeddb.leveldb", StringComparison.OrdinalIgnoreCase)) directory = root;
         if (!Directory.Exists(directory)) yield break;
-        var entries = ReadEntries(directory, Math.Clamp(maxFileMb, 1, 512) * 1024L * 1024L);
+        var entries = ReadEntries(directory, Math.Clamp(maxFileMb, 1, 512) * 1024L * 1024L, cancellationToken);
         // Only the named conversation store is relevant; never deserialize auth/key stores.
         var databaseIds = FindConversationDatabases(entries.Values);
         foreach (var entry in entries.Values.Where(item => !item.Deleted))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Dictionary<string, object?>? conversation = null;
             try
             {
@@ -198,7 +199,7 @@ public static class ClaudeDesktopUsageReader
         return c.Remaining();
     }
 
-    private static Dictionary<string, Entry> ReadEntries(string directory, long limit)
+    private static Dictionary<string, Entry> ReadEntries(string directory, long limit, CancellationToken cancellationToken)
     {
         var latest = new Dictionary<string, Entry>(StringComparer.Ordinal);
         // Read tables before WAL files. Sequence numbers, including tombstones, decide winners.
@@ -207,6 +208,7 @@ public static class ClaudeDesktopUsageReader
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return latest; }
         foreach (var file in files)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 var bytes = ReadShared(file, limit);
@@ -214,6 +216,7 @@ public static class ClaudeDesktopUsageReader
                 var records = file.EndsWith(".log", StringComparison.OrdinalIgnoreCase) ? ReadLog(bytes) : ReadTable(bytes);
                 foreach (var record in records)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     var key = Convert.ToHexString(record.Key);
                     if (!latest.TryGetValue(key, out var old) || record.Sequence > old.Sequence) latest[key] = record;
                 }

@@ -13,13 +13,14 @@ internal static class Program
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var temporary = Path.Combine(Path.GetTempPath(), "NikkiUiSmoke-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporary);
-        var store = new StatsStore(temporary, Path.Combine(temporary, "settings.json"));
+        var store = new StatsStore(Path.Combine(temporary, "data"), Path.Combine(temporary, "settings.json"));
         store.Settings.PricingCatalogUrl = "";
         store.AddTyping(5208);
         store.AddMouseClicks(1342);
         using var form = new Form1(store, startTimers: false);
         form.Opacity = 0;
         form.Show();
+        CheckLiveUsage(form, store, temporary);
         var preview = CreateUsage(8);
         Invoke(form, "UpdateView", preview);
         var refreshed = DateTime.Now.AddMinutes(-3);
@@ -107,7 +108,7 @@ internal static class Program
         Assert(!GetField<Label>(form, "statusLabel").Visible, "Startup interaction label is still visible.");
         Assert(form.Controls.Cast<Control>().Count(control => control.Visible) <= 1, "Collapsed button contains extra controls.");
 
-        var persisted = new StatsStore(temporary, Path.Combine(temporary, "settings.json"));
+        var persisted = new StatsStore(Path.Combine(temporary, "data"), Path.Combine(temporary, "settings.json"));
         Assert(persisted.Settings.CompanionUi.Language == "zh", "Language did not survive reload.");
         Assert(persisted.Settings.CompanionUi.PanelScale == 1.75D, "Scale did not survive reload.");
         CheckCustomization(temporary);
@@ -116,6 +117,40 @@ internal static class Program
         if (Path.GetDirectoryName(temporary) == Path.TrimEndingDirectorySeparator(Path.GetTempPath()))
             Directory.Delete(temporary, recursive: true);
         Console.WriteLine("UI smoke passed: English/Chinese, persistent scale, compact label, 35-model scrolling, unpriced costs, preserved customization drafts." + (writePreviews ? " Previews written to docs/images." : ""));
+    }
+
+    private static void CheckLiveUsage(Form1 form, StatsStore store, string temporary)
+    {
+        var logs = Path.Combine(temporary, "live-logs"); Directory.CreateDirectory(logs);
+        store.Settings.AutoDiscoverLogRoots = false;
+        store.Settings.LogRoots = [new() { Name = "test", Path = logs }];
+        store.Settings.ExtraLogRoots.Clear();
+        var timer = GetField<System.Windows.Forms.Timer>(form, "refreshTimer");
+        Assert(timer.Interval == 5_000, "Live usage polling is not set to five seconds.");
+        timer.Interval = 100; // Exercise real timer ticks with isolated test logs.
+        timer.Start();
+        try
+        {
+            for (var i = 1; i <= 5; i++)
+            {
+                var row = System.Text.Json.JsonSerializer.Serialize(new { timestamp = DateTime.Now.ToString("O"),
+                    id = "live-" + i, model = "gpt-4o", usage = new { input_tokens = 10, output_tokens = 5 } });
+                File.AppendAllText(Path.Combine(logs, "live.jsonl"), row + "\n");
+                Invoke(form, "SetExpanded", i % 2 == 0);
+                form.Hide();
+                var wait = System.Diagnostics.Stopwatch.StartNew();
+                while (GetField<DailyUsage>(form, "cachedUsage").RecordCount != i && wait.Elapsed < TimeSpan.FromSeconds(15))
+                {
+                    Application.DoEvents(); Thread.Sleep(10);
+                }
+                var usage = GetField<DailyUsage>(form, "cachedUsage");
+                Assert(usage.RecordCount == i && usage.TotalTokens == i * 15, "Hidden/collapsed dashboard stopped following new usage.");
+                Assert(usage.EstimatedCost > 0 && usage.Providers.Count == 1, "Live costs or model shares did not update with tokens.");
+            }
+        }
+        finally { timer.Stop(); timer.Interval = 5_000; }
+        form.Show();
+        Console.WriteLine("Live UI polling passed: five automatic token/cost updates while hidden, expanded and collapsed, without restart.");
     }
 
     private static void CheckCustomization(string temporary)

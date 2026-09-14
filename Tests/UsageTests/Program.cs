@@ -289,6 +289,119 @@ Test("Store package discovery does not hard-code suffix", () =>
     var packages = Path.Combine(work, "Packages"); var app = Path.Combine(packages, "Claude_testpublisher", "LocalCache", "Roaming", "Claude"); Directory.CreateDirectory(app);
     Equal(app, AiLogRootDiscovery.DiscoverPackagedClaudeRoots(packages).Single().Path);
 });
+Test("One reader follows repeated appends and completes a partially written line", () =>
+{
+    var folder = Path.Combine(work, "live-appends"); Directory.CreateDirectory(folder);
+    var path = Path.Combine(folder, "live.jsonl");
+    var settings = new PetStatsSettings { PricingCatalogUrl = "", AutoDiscoverLogRoots = false,
+        LogRoots = [new() { Name = "fixture", Path = folder }] };
+    var reader = new TokenLogReader(settings, Path.Combine(folder, "cache"));
+    File.WriteAllText(path, CodexSession() + "\n");
+    for (var i = 1; i <= 8; i++)
+    {
+        var request = CodexRequest(today, "live-" + i, 10, 5, i * 10, i * 5);
+        File.AppendAllText(path, request[..^2]);
+        Equal((i - 1) * 15L, reader.GetUsage(date).TotalTokens);
+        File.AppendAllText(path, request[^2..] + "\n");
+        var usage = reader.GetUsage(date);
+        Equal(i * 15L, usage.TotalTokens); Equal(i, usage.RecordCount);
+        Equal(i * 15L, reader.GetUsage(date).TotalTokens);
+    }
+});
+Test("Growing line log remains counted beyond MaxLogFileMb", () =>
+{
+    var folder = Path.Combine(work, "large-log"); Directory.CreateDirectory(folder);
+    var path = Path.Combine(folder, "live.jsonl");
+    var settings = new PetStatsSettings { MaxLogFileMb = 1, PricingCatalogUrl = "", AutoDiscoverLogRoots = false,
+        LogRoots = [new() { Name = "fixture", Path = folder }] };
+    var reader = new TokenLogReader(settings, Path.Combine(folder, "cache"));
+    File.WriteAllText(path, CodexSession() + "\n" + CodexRequest(today, "before-limit", 10, 5, 10, 5) + "\n");
+    Equal(15L, reader.GetUsage(date).TotalTokens);
+    using (var writer = File.AppendText(path))
+        for (var i = 0; i < 1200; i++) writer.WriteLine("{\"content\":\"" + new string('x', 1024) + "\"}");
+    File.AppendAllText(path, CodexRequest(today, "after-limit", 20, 5, 30, 10) + "\n");
+    Equal(40L, reader.GetUsage(date).TotalTokens); Equal(2, reader.GetUsage(date).RecordCount);
+});
+Test("Cached files cannot contaminate each other after a duplicate is removed", () =>
+{
+    var folder = Path.Combine(work, "duplicate-cache"); Directory.CreateDirectory(folder);
+    var a = Path.Combine(folder, "a.jsonl"); var b = Path.Combine(folder, "b.jsonl");
+    File.WriteAllText(a, At("""{"timestamp":"@TIME@","id":"shared","model":"gpt-4o","usage":{"input_tokens":10,"output_tokens":1}}"""));
+    File.WriteAllText(b, At("""{"timestamp":"@TIME@","id":"shared","model":"gpt-4o","usage":{"input_tokens":10,"output_tokens":90}}"""));
+    var settings = new PetStatsSettings { PricingCatalogUrl = "", AutoDiscoverLogRoots = false,
+        LogRoots = [new() { Name = "fixture", Path = folder }] };
+    var reader = new TokenLogReader(settings, Path.Combine(folder, "cache"));
+    Equal(100L, reader.GetUsage(date).TotalTokens);
+    File.Delete(b);
+    Equal(11L, reader.GetUsage(date).TotalTokens);
+    // Removing a log root must also remove its cached counters.
+    settings.LogRoots[0].Enabled = false;
+    Equal(0L, reader.GetUsage(date).TotalTokens);
+});
+Test("JSON rewrite retries automatically and catches equal-length updates", () =>
+{
+    var folder = Path.Combine(work, "rewrite"); Directory.CreateDirectory(folder);
+    var path = Path.Combine(folder, "live.json");
+    var first = At("""{"timestamp":"@TIME@","id":"a","model":"gpt-4o","usage":{"input_tokens":10,"output_tokens":10}}""");
+    File.WriteAllText(path, first);
+    var settings = new PetStatsSettings { PricingCatalogUrl = "", AutoDiscoverLogRoots = false,
+        LogRoots = [new() { Name = "fixture", Path = folder, ScanJsonFiles = true }] };
+    var reader = new TokenLogReader(settings, Path.Combine(folder, "cache"));
+    Equal(20L, reader.GetUsage(date).TotalTokens);
+    var originalTime = File.GetLastWriteTimeUtc(path);
+    File.WriteAllText(path, first.Replace(":10", ":20"));
+    File.SetLastWriteTimeUtc(path, originalTime);
+    Equal(40L, reader.GetUsage(date).TotalTokens);
+    File.WriteAllText(path, "{\"usage\":");
+    Equal(40L, reader.GetUsage(date).TotalTokens);
+    File.WriteAllText(path, first);
+    Equal(20L, reader.GetUsage(date).TotalTokens);
+});
+Test("Cached reader handles truncation, replacement, new files and midnight", () =>
+{
+    var folder = Path.Combine(work, "rotation"); Directory.CreateDirectory(folder);
+    var path = Path.Combine(folder, "live.jsonl");
+    File.WriteAllText(path, CodexSession() + "\n" + CodexRequest(yesterday, "old", 10, 5, 10, 5) + "\n"
+        + CodexRequest(today, "today", 20, 5, 30, 10) + "\n");
+    var settings = new PetStatsSettings { PricingCatalogUrl = "", AutoDiscoverLogRoots = false,
+        LogRoots = [new() { Name = "fixture", Path = folder }] };
+    var reader = new TokenLogReader(settings, Path.Combine(folder, "cache"));
+    Equal(15L, reader.GetUsage(date.AddDays(-1)).TotalTokens);
+    Equal(25L, reader.GetUsage(date).TotalTokens);
+    File.WriteAllText(path, CodexRequest(today, "truncated", 5, 1, 5, 1));
+    Equal(6L, reader.GetUsage(date).TotalTokens);
+    File.WriteAllText(Path.Combine(folder, "new.jsonl"), CodexRequest(today, "new", 5, 2, 5, 2));
+    Equal(13L, reader.GetUsage(date).TotalTokens);
+    File.Delete(path);
+    File.WriteAllText(path, CodexRequest(today, "replacement", 50, 1, 50, 1));
+    Equal(58L, reader.GetUsage(date).TotalTokens);
+});
+Test("Cancelled refresh can be followed by a successful refresh on the same reader", () =>
+{
+    var folder = Path.Combine(work, "cancel"); Directory.CreateDirectory(folder);
+    File.WriteAllText(Path.Combine(folder, "live.jsonl"), CodexRequest(today, "one", 10, 5, 10, 5));
+    var settings = new PetStatsSettings { PricingCatalogUrl = "", AutoDiscoverLogRoots = false,
+        LogRoots = [new() { Name = "fixture", Path = folder }] };
+    var reader = new TokenLogReader(settings, Path.Combine(folder, "cache"));
+    using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+    var cancelled = false;
+    try { reader.GetUsage(date, cancellation.Token); } catch (OperationCanceledException) { cancelled = true; }
+    Equal(true, cancelled); Equal(15L, reader.GetUsage(date).TotalTokens);
+});
+Test("Live file snapshots stop at opening EOF and observe cancellation", () =>
+{
+    using var source = new MemoryStream(); source.Write(new byte[] { 1, 2, 3, 4 }); source.Position = 0;
+    using var cancellation = new CancellationTokenSource();
+    var type = typeof(TokenLogReader).Assembly.GetType("PetStatsOverlay.UsageSnapshotStream")!;
+    using var snapshot = (Stream)Activator.CreateInstance(type, source, cancellation.Token)!;
+    source.Position = 4; source.Write(new byte[] { 5, 6, 7, 8 }); source.Position = 0;
+    var buffer = new byte[16];
+    Equal(4, snapshot.Read(buffer)); Equal(0, snapshot.Read(buffer));
+    cancellation.Cancel();
+    var cancelled = false;
+    try { _ = snapshot.Read(buffer); } catch (OperationCanceledException) { cancelled = true; }
+    Equal(true, cancelled);
+});
 if (args.Contains("--local"))
 {
     Test("Actual local Claude Desktop today is counted and priced", () =>

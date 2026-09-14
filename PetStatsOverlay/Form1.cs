@@ -75,6 +75,7 @@ public sealed partial class Form1 : Form
     private bool expanded;
     private bool hasUnsavedInput;
     private bool usageRefreshRunning;
+    private CancellationTokenSource? usageRefreshCancellation;
     private bool runtimeTimersStarted;
     private bool hasSeenPetWindow;
     private bool entryVisible;
@@ -102,7 +103,7 @@ public sealed partial class Form1 : Form
             if (IsHandleCreated && !IsDisposed) BeginInvoke(OpenCustomizationForm);
         };
 
-        refreshTimer = new System.Windows.Forms.Timer { Interval = 60_000 };
+        refreshTimer = new System.Windows.Forms.Timer { Interval = 5_000 };
         refreshTimer.Tick += (_, _) => BeginUsageRefresh();
 
         inputFlushTimer = new System.Windows.Forms.Timer { Interval = 250 };
@@ -168,6 +169,7 @@ public sealed partial class Form1 : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        usageRefreshCancellation?.Cancel();
         refreshTimer.Stop();
         inputFlushTimer.Stop();
         saveTimer.Stop();
@@ -1124,7 +1126,7 @@ public sealed partial class Form1 : Form
         updatedLabel.Text = usageRefreshFailed
             ? L.Pick("Refresh failed · retrying", "刷新失败 · 将自动重试")
             : usageRefreshedAt is { } refreshed
-                ? refreshed.ToString(L.Text("'\u66f4\u65b0\u4e8e' HH:mm"), CultureInfo.InvariantCulture)
+                ? refreshed.ToString(L.Pick("'Updated' HH:mm:ss", "'更新于' HH:mm:ss"), CultureInfo.InvariantCulture)
                 : L.Pick("Reading today's usage…", "正在读取今日用量…");
         var dateText = usage.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var periodText = L.Pick($"{dateText} · 00:00–24:00 in your computer's local time. Only timestamped usage is counted.",
@@ -1198,7 +1200,9 @@ public sealed partial class Form1 : Form
         var date = DateOnly.FromDateTime(DateTime.Now);
         try
         {
-            var usage = await Task.Run(() => tokenLogReader.GetUsage(date));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            usageRefreshCancellation = timeout;
+            var usage = await Task.Run(() => tokenLogReader.GetUsage(date, timeout.Token));
             if (IsDisposed || Disposing) return;
             EnsureCurrentDay();
             if (usage.Date != DateOnly.FromDateTime(DateTime.Now)) return;
@@ -1217,6 +1221,7 @@ public sealed partial class Form1 : Form
         {
             // All refresh state is owned by the UI thread, including completion.
             usageRefreshRunning = false;
+            usageRefreshCancellation = null;
             if (!IsDisposed && !Disposing && date != DateOnly.FromDateTime(DateTime.Now)) BeginUsageRefresh();
         }
     }

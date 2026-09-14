@@ -10,16 +10,22 @@ public sealed class TokenLogReader
 {
     private readonly PetStatsSettings settings;
     private readonly string dataDirectory;
+    private readonly string excludedCachePrefix;
     private readonly ModelPriceCatalog priceCatalog;
+    private readonly Dictionary<string, CachedLogFile> fileCache = new(StringComparer.OrdinalIgnoreCase);
+    private sealed record CachedLogFile(DateOnly Date, string RootKey, long Length, DateTime Modified, DateTime Created, long ReadAt,
+        Dictionary<string, UsageRecord> Records);
     public TokenLogReader(PetStatsSettings settings, string dataDirectory)
     {
         this.settings = settings;
         this.dataDirectory = dataDirectory;
+        excludedCachePrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataDirectory)) + Path.DirectorySeparatorChar;
         priceCatalog = new ModelPriceCatalog(settings, dataDirectory);
     }
     public DailyUsage GetTodayUsage() => GetUsage(DateOnly.FromDateTime(DateTime.Now));
-    public DailyUsage GetUsage(DateOnly date)
+    public DailyUsage GetUsage(DateOnly date, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         // The UI runs usage reads on its worker; network refresh never blocks construction.
         priceCatalog.RefreshIfNeeded();
         var usage = new DailyUsage { Date = date };
@@ -27,17 +33,19 @@ public sealed class TokenLogReader
         var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var root in GetLogRoots())
         {
-            foreach (var file in EnumerateCandidateFiles(root))
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var file in EnumerateCandidateFiles(root, cancellationToken))
             {
                 if (!files.Add(Path.GetFullPath(file))) continue;
-                ReadFile(file, root, date, records);
+                ReadFile(file, root, date, records, cancellationToken);
             }
             if (root.Name.Contains("claude", StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var desktop in ClaudeDesktopUsageReader.Read(AiLogRootDiscovery.ExpandPath(root.Path), settings.MaxLogFileMb))
+                foreach (var desktop in ClaudeDesktopUsageReader.Read(AiLogRootDiscovery.ExpandPath(root.Path), settings.MaxLogFileMb, cancellationToken))
                     Collect(desktop.Payload, root, new LogFileState { SessionKey = desktop.Source }, desktop.Source, date, records);
             }
         }
+        foreach (var stale in fileCache.Keys.Where(path => !files.Contains(path)).ToArray()) fileCache.Remove(stale);
         // SDK result summaries repeat the per-message counters from the same transcript.
         var codexPrimarySnapshots = records.Values.Where(r => r.IsCodexRequest && r.CodexCumulativeKey.Length > 0)
             .Select(r => r.CodexCumulativeKey).ToHashSet(StringComparer.Ordinal);
@@ -45,6 +53,7 @@ public sealed class TokenLogReader
             .Select(r => (r.SessionKey, r.Provider, r.Model)).ToHashSet();
         foreach (var record in records.Values)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (record.Timestamp is null || DateOnly.FromDateTime(record.Timestamp.Value) != date) continue;
             if (record.IsCodexSnapshot && codexPrimarySnapshots.Contains(record.CodexCumulativeKey)) continue;
             if (record.IsSessionSummary && detailed.Contains((record.SessionKey, record.Provider, record.Model))) continue;
@@ -72,7 +81,7 @@ public sealed class TokenLogReader
         return roots.Where(r => !string.IsNullOrWhiteSpace(r.Path)).GroupBy(r => AiLogRootDiscovery.ExpandPath(r.Path), StringComparer.OrdinalIgnoreCase)
             .Select(g => g.OrderByDescending(r => r.ScanJsonFiles).First());
     }
-    private IEnumerable<string> EnumerateCandidateFiles(LogRootSetting root)
+    private IEnumerable<string> EnumerateCandidateFiles(LogRootSetting root, CancellationToken cancellationToken)
     {
         var result = new List<string>();
         var path = AiLogRootDiscovery.ExpandPath(root.Path);
@@ -82,42 +91,90 @@ public sealed class TokenLogReader
         {
             foreach (var file in Directory.EnumerateFiles(path, "*", options))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                // A custom root may contain our own diagnostics/cache directory.
+                // Never feed generated aggregates back into usage as new logs.
+                if (Path.GetFullPath(file).StartsWith(excludedCachePrefix, StringComparison.OrdinalIgnoreCase)) continue;
                 var extension = Path.GetExtension(file);
                 if (!extension.Equals(".jsonl", StringComparison.OrdinalIgnoreCase) && !extension.Equals(".ndjson", StringComparison.OrdinalIgnoreCase)
                     && (!(settings.ScanJsonFiles || root.ScanJsonFiles) || !extension.Equals(".json", StringComparison.OrdinalIgnoreCase))) continue;
-                try { if (new FileInfo(file).Length <= Math.Max(1, settings.MaxLogFileMb) * 1024L * 1024L) result.Add(file); }
+                // JSONL is streamed, so a long conversation must not disappear
+                // when its total file size crosses the document memory limit.
+                try { if (!extension.Equals(".json", StringComparison.OrdinalIgnoreCase)
+                    || new FileInfo(file).Length <= Math.Max(1, settings.MaxLogFileMb) * 1024L * 1024L) result.Add(file); }
                 catch (IOException) { }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
         return result;
     }
-    private void ReadFile(string path, LogRootSetting root, DateOnly date, Dictionary<string, UsageRecord> records)
+    private void ReadFile(string path, LogRootSetting root, DateOnly date, Dictionary<string, UsageRecord> records, CancellationToken cancellationToken)
     {
         var state = new LogFileState { SessionKey = path };
+        var parsed = new Dictionary<string, UsageRecord>(StringComparer.Ordinal);
+        var rootKey = $"{root.Name}\n{root.ProviderHint}";
+        fileCache.TryGetValue(path, out var cached);
+        if (cached?.Date != date || cached.RootKey != rootKey) cached = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            var before = new FileInfo(path);
+            var length = before.Length;
+            var modified = before.LastWriteTimeUtc;
+            var created = before.CreationTimeUtc;
+            // Writers can hold back last-write timestamps until their handle
+            // closes. Re-read JSON snapshots every poll and periodically audit
+            // unchanged line logs so same-length edits cannot remain stale.
+            if (!Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase)
+                && cached is not null && cached.Length == length && cached.Modified == modified && cached.Created == created
+                && Environment.TickCount64 - cached.ReadAt < 30_000)
+            {
+                AddRecords(cached.Records);
+                return;
+            }
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            // Read one finite snapshot. A continuously appending writer cannot
+            // keep this scan at EOF forever and block every subsequent refresh.
+            using var snapshot = new UsageSnapshotStream(stream, cancellationToken);
             if (Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))
             {
-                using var document = JsonDocument.Parse(stream);
+                using var document = JsonDocument.Parse(snapshot);
                 Process(document.RootElement, "json");
             }
             else
             {
-                using var reader = new StreamReader(stream);
+                using var reader = new StreamReader(snapshot);
                 var lineNumber = 0;
                 while (reader.ReadLine() is { } line)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     lineNumber++;
                     if (string.IsNullOrWhiteSpace(line)) continue;
                     try { using var document = JsonDocument.Parse(line); Process(document.RootElement, lineNumber.ToString(CultureInfo.InvariantCulture)); }
                     catch (JsonException) { /* A writer may still be appending this line. */ }
                 }
             }
+            var after = new FileInfo(path);
+            // Never cache a file that changed while it was being read: even a
+            // same-length rewrite must be retried on the next poll.
+            if (after.Length == length && after.LastWriteTimeUtc == modified && after.CreationTimeUtc == created)
+                fileCache[path] = new(date, rootKey, length, modified, created, Environment.TickCount64, parsed);
+            else fileCache.Remove(path);
+            AddRecords(parsed);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { }
-        void Process(JsonElement element, string offset) => Collect(element, root, state, path + ":" + offset, date, records);
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            // JSON documents are often rewritten in place. Keep the previous
+            // same-day result during a partial write and retry without restart.
+            if (cached is not null) AddRecords(cached.Records);
+        }
+        void Process(JsonElement element, string offset) => Collect(element, root, state, path + ":" + offset, date, parsed);
+        void AddRecords(Dictionary<string, UsageRecord> source)
+        {
+            // Aggregation merges duplicate snapshots across files. It must not
+            // mutate cached counters, or deleted/replaced records linger forever.
+            foreach (var pair in source) MergeRecord(records, pair.Key, pair.Value.Copy());
+        }
     }
     private static void Collect(JsonElement element, LogRootSetting root, LogFileState state, string location, DateOnly date, Dictionary<string, UsageRecord> records)
     {
@@ -134,15 +191,19 @@ public sealed class TokenLogReader
             candidate.Source = root.Name;
             candidate.SessionKey = state.SessionKey;
             var key = candidate.StableId is { Length: > 0 } id ? $"{candidate.Provider}:{id}" : $"{location}:{index}";
-            if (records.TryGetValue(key, out var previous))
-            {
-                // A compaction envelope can replay an earlier request. Its envelope
-                // time must never replace the authoritative request's actual date.
-                if (previous.IsCodexEmbeddedSnapshot && candidate.IsCodexRequest && !candidate.IsCodexEmbeddedSnapshot) records[key] = candidate;
-                else if (!(candidate.IsCodexEmbeddedSnapshot && previous.IsCodexRequest && !previous.IsCodexEmbeddedSnapshot)) previous.MergeSnapshot(candidate);
-            }
-            else records[key] = candidate;
+            MergeRecord(records, key, candidate);
         }
+    }
+    private static void MergeRecord(Dictionary<string, UsageRecord> records, string key, UsageRecord candidate)
+    {
+        if (records.TryGetValue(key, out var previous))
+        {
+            // A compaction envelope can replay an earlier request. Its envelope
+            // time must never replace the authoritative request's actual date.
+            if (previous.IsCodexEmbeddedSnapshot && candidate.IsCodexRequest && !candidate.IsCodexEmbeddedSnapshot) records[key] = candidate;
+            else if (!(candidate.IsCodexEmbeddedSnapshot && previous.IsCodexRequest && !previous.IsCodexEmbeddedSnapshot)) previous.MergeSnapshot(candidate);
+        }
+        else records[key] = candidate;
     }
     private void WriteUsageDiagnostics(DailyUsage usage)
     {
@@ -511,6 +572,7 @@ public static class ModelIdentity
 public sealed class ModelPriceCatalog
 {
     private readonly List<PriceEntry> prices = [];
+    private readonly Dictionary<(string Provider, string Model), PriceEntry?> priceMatches = [];
     private readonly PetStatsSettings settings;
     private readonly string cachePath;
     private DateTime nextRefreshCheck;
@@ -524,6 +586,7 @@ public sealed class ModelPriceCatalog
     }
     private void LoadAvailableCatalogs()
     {
+        priceMatches.Clear();
         prices.RemoveAll(p => !p.Custom);
         try { if (File.Exists(cachePath)) LoadCatalog(File.ReadAllText(cachePath)); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
@@ -580,10 +643,10 @@ public sealed class ModelPriceCatalog
         var model = ModelIdentity.NormalizeModel(record.Model);
         if (model.Length == 0) return null;
         var provider = ModelIdentity.NormalizeProvider(record.Provider);
+        if (priceMatches.TryGetValue((provider, model), out var cached)) return cached;
         var candidates = prices.Where(p => string.IsNullOrEmpty(p.Price.Provider) || ModelIdentity.NormalizeProvider(p.Price.Provider) == provider).ToList();
         var custom = candidates.Where(p => p.Custom).OrderByDescending(p => p.Price.Pattern.Length).FirstOrDefault(p => MatchModel(model, p.Price.Pattern, provider, true));
-        if (custom is not null) return custom;
-        return candidates.FirstOrDefault(p => MatchModel(model, p.Price.Pattern, provider, false))
+        return priceMatches[(provider, model)] = custom ?? candidates.FirstOrDefault(p => MatchModel(model, p.Price.Pattern, provider, false))
             ?? candidates.FirstOrDefault(p => MatchModel(RemoveDate(model), p.Price.Pattern, provider, false));
     }
     private static bool MatchModel(string model, string pattern, string provider, bool custom)
@@ -725,6 +788,7 @@ public sealed class UsageRecord
     public string Speed { get; set; } = "";
     public string InferenceGeo { get; set; } = "";
     public bool HasAnyUsage => TotalTokens > 0 || ExplicitCost > 0;
+    internal UsageRecord Copy() => (UsageRecord)MemberwiseClone();
     // Reasoning is an output breakdown, already included in OutputTokens.
     public long TotalTokens => TotalTokensOverride > 0 ? TotalTokensOverride : InputTokens + CacheCreationTokens + CacheReadTokens + OutputTokens;
     public void MergeSnapshot(UsageRecord other)

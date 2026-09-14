@@ -1,8 +1,10 @@
-# Nikki Bongo Cat v1.1.3
+# Nikki Bongo Cat v1.1.4
 
 ## English
 
-This update fixes the unlocked pet falling behind other application and browser windows. Always-on-top behavior is now independent of locking: the pet stays visible when you switch applications, drag it, or resize it. Switching applications keeps input focus in the application you selected.
+This update fixes delayed or missing token updates in long conversations. The companion now checks local usage every five seconds, including while the dashboard is collapsed or hidden. Tokens, estimated cost, and model shares update together. Large JSONL logs are no longer skipped at 128 MB, and unchanged line logs are reused to reduce repeated scanning.
+
+Actively growing files are read as finite snapshots. Partial writes and failed scans are retried automatically. Usage still depends on the AI client saving token metadata, often when a response finishes. The first scan of a large history may take longer than five seconds. Upgrade once to load the fix; repeated restarts should not be needed for normal updates.
 
 **To resize:** unlock the pet, hold the right mouse button on its visible body, and drag right/down to enlarge or left/up to shrink. Release to finish. Left-button dragging moves the pet.
 
@@ -22,7 +24,9 @@ For upgrades, stop the old pet first. Extract this release, retain your settings
 
 ## 简体中文
 
-此版本修复解锁桌宠后被其他软件或浏览器遮住的问题。置顶行为与锁定状态分开：切换应用、拖动或缩放时，桌宠都会保持在普通窗口上方。切换软件时，输入焦点仍留在你选择的软件中。
+此版本修复长会话中 Token 更新迟缓或漏统计的问题。程序每五秒检查一次本地用量，面板收起或隐藏时也会继续，Token、预估费用和模型占比一起更新。JSONL 日志超过 128 MB 后不再被跳过；未变化的逐行日志会复用读取结果，减少重复扫描。
+
+持续写入的日志按有限快照读取，遇到半写入或扫描失败会自动重试。用量仍需等 AI 客户端保存 Token 元数据后才能显示，通常是在一次回复结束后。首次读取大量历史日志可能超过五秒。升级后重新启动一次以载入修复，之后正常更新无需反复重启。
 
 **缩放方法：**先解锁桌宠，在可见本体上按住右键，向右／向下拖动放大，向左／向上拖动缩小，松开结束。按住左键拖动可以移动桌宠。
 

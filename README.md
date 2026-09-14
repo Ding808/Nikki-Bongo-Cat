@@ -100,7 +100,11 @@ The application reads usage metadata already present on this computer. It does n
 
 Known folders for Claude, Codex, Gemini CLI, Kimi CLI, Qwen Code, OpenCode JSON storage, Cursor, Windsurf, Continue, and Cline/Roo/Kilo task storage are discovered automatically where present. Folder discovery is not a guarantee that every version of that client writes readable token records. A browser conversation, remote account, or client that does not expose usage locally cannot be reconstructed from nothing.
 
-Claude Desktop may evict its cache or omit conversations that have not been opened locally. Only available usage metadata can be included; encrypted or absent records are not estimated by counting prompt text. A new app version may also change its storage format. Records without a usable timestamp cannot be assigned to today and are excluded. Statistics update at startup and approximately once per minute, using the computer's local calendar day.
+Claude Desktop may evict its cache or omit conversations that have not been opened locally. Only available usage metadata can be included; encrypted or absent records are not estimated by counting prompt text. A new app version may also change its storage format. Records without a usable timestamp cannot be assigned to today and are excluded. Statistics use the computer's local calendar day.
+
+**Live updates:** the companion checks for usage every **5 seconds**, including when the dashboard is collapsed or hidden. Tokens, estimated cost, and model shares update together. The time at the bottom shows the last completed scan, down to the second. A first scan of a large history can take longer; unchanged line logs are reused between periodic checks. Long JSONL conversations continue to count after exceeding 128 MB. `MaxLogFileMb` still limits whole JSON documents and Claude Desktop database files.
+
+Usage appears after the AI client writes token metadata to its local log or cache, often at the end of a response. The companion cannot display tokens the client has not saved yet. Partial writes and failed scans are retried automatically; restarting the pet is not the normal way to refresh statistics.
 
 When a Claude Desktop query clearly spans local midnight, its combined summary cannot be reliably divided between the two days. The app skips that summary and keeps individually timestamped message usage. Daily totals for that query may therefore be incomplete.
 
@@ -198,6 +202,7 @@ The older `--attach-steam-bongo-cat` argument remains an alias of `--steam-launc
 | A model has tokens but no cost | Check the unpriced-record notice, the exact logged model identifier, catalogue connectivity, and custom `Prices` overrides. |
 | A model I did not choose today appears | The panel combines logs from local AI apps such as Codex and Claude, including any recorded background or helper calls. A Codex conversation used to troubleshoot this project can itself contribute usage. Records are assigned to today by their actual logged timestamps, not when you opened a conversation or when its file was modified. |
 | Claude Desktop usage is missing | Open the relevant conversation in Claude Desktop, let its local cache update, and wait for the next statistics refresh. The app cannot recover uncached usage. |
+| Tokens seem stuck | Wait for the AI response to finish, then allow the next 5-second check to complete. Check the update time at the bottom. Upgrade to v1.1.4 or newer if you use long conversations: older versions skipped line logs larger than 128 MB. |
 | Another client's usage is missing | Confirm it writes usage counts and timestamps to compatible local logs, then add the relevant folder. Selecting a provider does not enable account-level billing access. |
 | Changes to settings are not applied | Close the companion, check that the settings file is valid JSON, save, and restart. |
 | Pet is locked or cannot be dragged | Press numpad **+** or choose **Unlock pet**, then drag a visible part of the pet. Use the supplied launcher so pet and companion run at the same privilege level. |

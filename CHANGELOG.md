@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.4 — 2026-09-14
+
+### English
+
+- Refresh tokens, estimated cost, and model shares every five seconds, including while the dashboard is hidden or collapsed; show the completed refresh time with seconds.
+- Keep counting long JSONL/NDJSON conversations after their files exceed the whole-document size limit. Reuse unchanged line-log results and model price matches to reduce repeated scanning.
+- Read a finite snapshot of actively growing logs, cancel overlong scans cooperatively, and retry partial JSON writes without discarding the last readable same-day result.
+- Prevent generated diagnostics from being counted as new usage when a custom log root includes the companion's data folder.
+- Add regression coverage for repeated live appends, partial writes, size-limit crossings, rotation, midnight, cancellation, and automatic hidden-panel refreshes.
+
+### 简体中文
+
+- 每五秒更新 Token、预估费用和模型占比，面板隐藏或收起时也继续；更新时间精确到秒。
+- JSONL／NDJSON 长会话超过整份文档的大小限制后仍能统计；复用未变化的逐行日志结果和模型价格匹配，减少重复扫描。
+- 为持续写入的日志读取有限快照；扫描耗时过长时协作式取消并重试；整份 JSON 写到一半时保留最近一次成功读取的当日结果。
+- 自定义日志目录包含统计程序的数据目录时，避免把程序自己的诊断汇总再次计入用量。
+- 增加连续追加、半写入、超过大小限制、日志轮换、跨日、取消读取，以及隐藏面板自动刷新的回归测试。
+
 ## v1.1.3 — 2026-09-11
 
 ### English
